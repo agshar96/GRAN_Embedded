@@ -10,6 +10,7 @@ import numpy as np
 from scipy import sparse as sp
 import networkx as nx
 import torch.nn.functional as F
+from torch_geometric.data import DataLoader
 
 __all__ = [
     'save_graph_list', 'load_graph_list', 'graph_load_batch',
@@ -155,6 +156,35 @@ def graph_load_batch(data_dir,
   print('Loaded')
   return graphs
 
+def graph_load_from_torchfile(data_dir, file_name, name='argoverse', node_attributes = True, graph_labels=True):
+  path = os.path.join(data_dir, name, file_name)
+  print("Loading graph from file: ", path)
+  dataset  = np.load(path, allow_pickle=True)
+  graphs = []
+
+  for torch_graph in dataset:
+      G = nx.Graph()
+      num_nodes = torch_graph.num_nodes
+      edge_index = torch_graph.edge_index.t().tolist()  # Convert edge_index to list of tuples
+      for i in range(num_nodes):
+          # node_features = {f'feature_{j}': dataset.x[i][j].item() for j in range(dataset.num_node_features)}
+          if node_attributes:
+            G.add_node(i, features = torch_graph.x[i])
+          else:
+            G.add_node(i)
+
+      # Add edges
+      for edge in edge_index:
+        G.add_edge(edge[0], edge[1])
+      if graph_labels:
+        G.graph['label'] = torch_graph.y
+
+      G.remove_nodes_from(list(nx.isolates(G)))
+      G.remove_edges_from(nx.selfloop_edges(G))
+      graphs.append(G)
+
+  return graphs
+
 
 def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
   npr = np.random.RandomState(seed)
@@ -166,6 +196,10 @@ def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
     for i in range(10, 20):
       for j in range(10, 20):
         graphs.append(nx.grid_2d_graph(i, j))    
+  elif graph_type == 'grid_small':
+    graphs = []
+    for _ in range(50):
+      graphs.append(nx.grid_2d_graph(3,3))
   elif graph_type == 'lobster':
     graphs = []
     p1 = 0.7
@@ -205,6 +239,12 @@ def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
         name='FIRSTMM_DB',
         node_attributes=False,
         graph_labels=True)
+  elif graph_type == 'argoverse':
+    graphs = graph_load_from_torchfile(data_dir,
+                                       file_name='subsample_100_graph.pkl',
+                                       name='argoverse',
+                                       node_attributes = True,
+                                       graph_labels=True)
 
   num_nodes = [gg.number_of_nodes() for gg in graphs]
   num_edges = [gg.number_of_edges() for gg in graphs]

@@ -39,38 +39,56 @@ class GRANData(object):
         self.data_path, '{}_{}_{}_{}_{}_{}_{}_precompute'.format(
             config.model.name, config.dataset.name, tag, self.block_size,
             self.stride, self.num_canonical_order, self.node_order))
+    if self.config.dataset.has_node_feat:
+      self.embed_save_path = self.save_path + '_embed'
 
     if not os.path.isdir(self.save_path) or self.is_overwrite_precompute:
       self.file_names = []
       if not os.path.isdir(self.save_path):
         os.makedirs(self.save_path)
+        if self.config.dataset.has_node_feat:
+          os.makedirs(self.embed_save_path)
 
       self.config.dataset.save_path = self.save_path
       for index in tqdm(range(self.num_graphs)):
         G = self.graphs[index]
-        data = self._get_graph_data(G)
+        if config.dataset.has_node_feat:
+          data, embeddings = self._get_graph_data(G, has_node_embed = True)
+        else:
+          data = self._get_graph_data(G)
         tmp_path = os.path.join(self.save_path, '{}_{}.p'.format(tag, index))
         pickle.dump(data, open(tmp_path, 'wb'))
+        if config.dataset.has_node_feat:
+          tmp_path_embedding = os.path.join(self.embed_save_path, '{}_{}.p'.format(tag, index))
+          pickle.dump(embeddings, open(tmp_path_embedding, 'wb'))
         self.file_names += [tmp_path]
     else:
       self.file_names = glob.glob(os.path.join(self.save_path, '*.p'))
 
-  def _get_graph_data(self, G):
+  def _get_graph_data(self, G, has_node_embed=False):
     node_degree_list = [(n, d) for n, d in G.degree()]
 
-    adj_0 = np.array(nx.to_numpy_matrix(G))
+    adj_0 = np.array(nx.to_numpy_array(G))
+    if has_node_embed:
+      node_embed_0 = np.array(list(G.nodes(data=True)))
 
     ### Degree descent ranking
     # N.B.: largest-degree node may not be unique
     degree_sequence = sorted(
         node_degree_list, key=lambda tt: tt[1], reverse=True)
+    nodelist_1= [dd[0] for dd in degree_sequence]
     adj_1 = np.array(
-        nx.to_numpy_matrix(G, nodelist=[dd[0] for dd in degree_sequence]))
+        nx.to_numpy_array(G, nodelist=nodelist_1))
+    if has_node_embed:
+      node_embed_1 = node_embed_0[nodelist_1]
 
     ### Degree ascent ranking
     degree_sequence = sorted(node_degree_list, key=lambda tt: tt[1])
+    nodelist_2 = [dd[0] for dd in degree_sequence]
     adj_2 = np.array(
-        nx.to_numpy_matrix(G, nodelist=[dd[0] for dd in degree_sequence]))
+        nx.to_numpy_array(G, nodelist=nodelist_2))
+    if has_node_embed:
+      node_embed_2 = node_embed_0[nodelist_2]
 
     ### BFS & DFS from largest-degree node
     CGs = [G.subgraph(c) for c in nx.connected_components(G)]
@@ -91,8 +109,12 @@ class GRANData(object):
       node_list_bfs += list(bfs_tree.nodes())
       node_list_dfs += list(dfs_tree.nodes())
 
-    adj_3 = np.array(nx.to_numpy_matrix(G, nodelist=node_list_bfs))
-    adj_4 = np.array(nx.to_numpy_matrix(G, nodelist=node_list_dfs))
+    adj_3 = np.array(nx.to_numpy_array(G, nodelist=node_list_bfs))
+    if has_node_embed:
+      node_embed_3 = node_embed_0[node_list_bfs]
+    adj_4 = np.array(nx.to_numpy_array(G, nodelist=node_list_dfs))
+    if has_node_embed:
+      node_embed_4 = node_embed_0[node_list_dfs]
 
     ### k-core
     num_core = nx.core_number(G)
@@ -110,35 +132,62 @@ class GRANData(object):
           reverse=True)
       node_list += [nn for nn, dd in sort_node_tuple]
 
-    adj_5 = np.array(nx.to_numpy_matrix(G, nodelist=node_list))
+    adj_5 = np.array(nx.to_numpy_array(G, nodelist=node_list))
+    if has_node_embed:
+      node_embed_5 = node_embed_0[node_list]
 
     if self.num_canonical_order == 5:
       adj_list = [adj_0, adj_1, adj_3, adj_4, adj_5]
+      if has_node_embed:
+        node_embed_list = [node_embed_0, node_embed_1, node_embed_2,
+                          node_embed_3, node_embed_4, node_embed_5]
     else:
       if self.node_order == 'degree_decent':
         adj_list = [adj_1]
+        if has_node_embed:
+          node_embed_list = [node_embed_1]
       elif self.node_order == 'degree_accent':
         adj_list = [adj_2]
+        if has_node_embed:
+          node_embed_list = [node_embed_2]
       elif self.node_order == 'BFS':
         adj_list = [adj_3]
+        if has_node_embed:
+          node_embed_list = [node_embed_3]
       elif self.node_order == 'DFS':
         adj_list = [adj_4]
+        if has_node_embed:
+          node_embed_list = [node_embed_4]
       elif self.node_order == 'k_core':
         adj_list = [adj_5]
+        if has_node_embed:
+          node_embed_list = [node_embed_5]
       elif self.node_order == 'DFS+BFS':
         adj_list = [adj_4, adj_3]
+        if has_node_embed:
+          node_embed_list = [node_embed_4, node_embed_3]
       elif self.node_order == 'DFS+BFS+k_core':
         adj_list = [adj_4, adj_3, adj_5]
+        if has_node_embed:
+          node_embed_list = [node_embed_4, node_embed_3, node_embed_5]
       elif self.node_order == 'DFS+BFS+k_core+degree_decent':
         adj_list = [adj_4, adj_3, adj_5, adj_1]
+        if has_node_embed:
+          node_embed_list = [node_embed_4, node_embed_3, node_embed_5, node_embed_1]
       elif self.node_order == 'all':
         adj_list = [adj_4, adj_3, adj_5, adj_1, adj_0]
+        if has_node_embed:
+          node_embed_list = [node_embed_4, node_embed_3, node_embed_5, node_embed_1, node_embed_0]
       else:
         adj_list = [adj_0]
+        if has_node_embed:
+          node_embed_list = [node_embed_0]
 
     # print('number of nodes = {}'.format(adj_0.shape[0]))
-
-    return adj_list
+    if has_node_embed:
+      return adj_list, node_embed_list
+    else:
+      return adj_list
 
   def __getitem__(self, index):
     K = self.block_size
@@ -147,6 +196,10 @@ class GRANData(object):
 
     # load graph
     adj_list = pickle.load(open(self.file_names[index], 'rb'))
+    if self.config.dataset.has_node_feat:
+      embed_path = os.path.join(self.embed_save_path,self.file_names[index].split("/")[-1]) 
+      node_embed_list = pickle.load(open(embed_path, 'rb'))
+
     num_nodes = adj_list[0].shape[0]
     num_subgraphs = int(np.floor((num_nodes - K) / S) + 1)
 
@@ -179,6 +232,9 @@ class GRANData(object):
       edges = []
       node_idx_gnn = []
       node_idx_feat = []
+      if self.config.dataset.has_node_feat:
+        node_embed_idx_gnn = []
+        label_embed = []
       label = []
       subgraph_size = []
       subgraph_idx = []
@@ -188,6 +244,9 @@ class GRANData(object):
       for ii in range(len(adj_list)):
         # loop over different orderings
         adj_full = adj_list[ii]
+        if self.config.dataset.has_node_feat:
+          node_embed_output = node_embed_list[ii][:, 1]
+          node_embed = np.array([item['features'].numpy() for item in node_embed_output])
         # adj_tril = np.tril(adj_full, k=-1)
 
         idx = -1
@@ -250,6 +309,14 @@ class GRANData(object):
               adj_full[idx_row_gnn, idx_col_gnn].flatten().astype(np.uint8)
           ]
 
+          ### get node embedding labels for training
+          if self.config.dataset.has_node_feat:
+            idx_embed_gnn = np.arange(jj, jj+K)
+            node_embed_idx_gnn += [idx_embed_gnn.astype(np.int64)] # This records idx of new nodes introduced
+            label_embed += [
+              node_embed[idx_embed_gnn].astype(np.float32)
+            ]
+
           subgraph_size += [jj + K]
           subgraph_idx += [
               np.ones_like(label[-1]).astype(np.int64) * subgraph_count
@@ -261,10 +328,18 @@ class GRANData(object):
       for ii in range(len(edges)):
         edges[ii] = edges[ii] + cum_size[ii]
         node_idx_gnn[ii] = node_idx_gnn[ii] + cum_size[ii]
+        if self.config.dataset.has_node_feat:
+          node_embed_idx_gnn[ii] = node_embed_idx_gnn[ii] + cum_size[ii]
 
       ### pack tensors
       data = {}
       data['adj'] = np.tril(np.stack(adj_list, axis=0), k=-1)
+      #TO DO: This will currently work if you only use one means of traversal
+      ## for instance just the DFS or the BFS but never multiple simulataneously
+      if self.config.dataset.has_node_feat:
+        data['node_embed'] = np.expand_dims(node_embed, axis=0)
+        data['node_embed_idx_gnn'] = np.concatenate(node_embed_idx_gnn)
+        data['label_embed'] = np.concatenate(label_embed)
       data['edges'] = torch.cat(edges, dim=1).t().long()
       data['node_idx_gnn'] = np.concatenate(node_idx_gnn)
       data['node_idx_feat'] = np.concatenate(node_idx_feat)
@@ -318,6 +393,17 @@ class GRANData(object):
                       constant_values=0.0) for ii, bb in enumerate(batch_pass)
               ],
               axis=0)).float()  # B X C X N X N
+      
+      if self.config.dataset.has_node_feat:
+        data['node_embed'] = torch.from_numpy(
+            np.stack(
+                [
+                    np.pad(
+                        bb['node_embed'], ((0, 0), (0, pad_size[ii]), (0, 0)),
+                        'constant',
+                        constant_values=0.0) for ii, bb in enumerate(batch_pass)
+                ],
+                axis=0)).float()
 
       idx_base = np.array([0] + [bb['num_count'] for bb in batch_pass])
       idx_base = np.cumsum(idx_base)
@@ -330,6 +416,15 @@ class GRANData(object):
           np.concatenate(
               [
                   bb['node_idx_gnn'] + idx_base[ii]
+                  for ii, bb in enumerate(batch_pass)
+              ],
+              axis=0)).long()
+
+      if self.config.dataset.has_node_feat:
+        data['node_embed_idx_gnn'] = torch.from_numpy(
+          np.concatenate(
+              [
+                  bb['node_embed_idx_gnn'] + idx_base[ii]
                   for ii, bb in enumerate(batch_pass)
               ],
               axis=0)).long()
@@ -350,6 +445,10 @@ class GRANData(object):
 
       data['label'] = torch.from_numpy(
           np.concatenate([bb['label'] for bb in batch_pass])).float()
+
+      if self.config.dataset.has_node_feat:
+        data['label_embed'] = torch.from_numpy(
+          np.concatenate([bb['label_embed'] for bb in batch_pass])).float()
 
       data['subgraph_idx'] = torch.from_numpy(
           np.concatenate([

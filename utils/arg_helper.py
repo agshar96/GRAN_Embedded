@@ -7,13 +7,13 @@ from easydict import EasyDict as edict
 
 def parse_arguments():
   parser = argparse.ArgumentParser(
-      description="Running Experiments of Deep Prediction")
+      description="Running Experiments of Graph Generation")
   parser.add_argument(
       '-c',
       '--config_file',
       type=str,
-      default="config/resnet101_cifar.json",
-      required=True,
+      default="config/gran_argoverse.yaml",
+      # required=True,
       help="Path of config file")
   parser.add_argument(
       '-l',
@@ -35,8 +35,8 @@ def parse_arguments():
 
 def get_config(config_file, exp_dir=None, is_test=False):
   """ Construct and snapshot hyper parameters """
-  # config = edict(yaml.load(open(config_file, 'r'), Loader=yaml.FullLoader))
-  config = edict(yaml.load(open(config_file, 'r')))
+  config = edict(yaml.load(open(config_file, 'r'), Loader=yaml.FullLoader))
+  # config = edict(yaml.load(open(config_file, 'r')))
 
   # create hyper parameters
   config.run_id = str(os.getpid())

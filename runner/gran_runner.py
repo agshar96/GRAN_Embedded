@@ -25,7 +25,7 @@ from utils.train_helper import data_to_gpu, snapshot, load_model, EarlyStopper
 from utils.data_helper import *
 from utils.eval_helper import *
 from utils.dist_helper import compute_mmd, gaussian_emd, gaussian, emd, gaussian_tv
-from utils.vis_helper import draw_graph_list, draw_graph_list_separate
+from utils.vis_helper import draw_graph_list, draw_graph_list_separate, draw_graph_list_embed
 from utils.data_parallel import DataParallel
 
 
@@ -62,9 +62,26 @@ def get_graph(adj):
   adj = adj[~np.all(adj == 0, axis=1)]
   adj = adj[:, ~np.all(adj == 0, axis=0)]
   adj = np.asmatrix(adj)
-  G = nx.from_numpy_matrix(adj)
+  G = nx.from_numpy_array(adj)
   return G
 
+def get_graph_embed(adj, node_embed):
+    '''
+    get a graph from zero-padded adj
+    :param adj:
+    :return:
+    '''
+    # remove all zeros rows and columns
+    adj = adj[~np.all(adj == 0, axis=1)]
+    adj = adj[:, ~np.all(adj == 0, axis=0)]
+    adj = np.asmatrix(adj)
+    G = nx.from_numpy_array(adj)
+    feature_dict = {}
+    for node_id, feature_vector in enumerate(node_embed):
+        feature_dict[node_id] = {'features': feature_vector}
+    
+    nx.set_node_attributes(G, feature_dict)
+    return G
 
 def evaluate(graph_gt, graph_pred, degree_only=True):
   mmd_degree = degree_stats(graph_gt, graph_pred)
@@ -132,6 +149,8 @@ class GranRunner(object):
     self.graphs_dev = self.graphs[:self.num_dev]
     self.graphs_test = self.graphs[self.num_train:]
     
+    #draw_graph_list_embed(self.graphs_train[:2], 1, 2)
+
     self.config.dataset.sparse_ratio = compute_edge_ratio(self.graphs_train)
     logger.info('No Edges vs. Edges in training set = {}'.format(
         self.config.dataset.sparse_ratio))
@@ -234,7 +253,11 @@ class GranRunner(object):
           if self.use_gpu:
             for dd, gpu_id in enumerate(self.gpus):
               data = {}
-              data['adj'] = batch_data[dd][ff]['adj'].pin_memory().to(gpu_id, non_blocking=True)          
+              data['adj'] = batch_data[dd][ff]['adj'].pin_memory().to(gpu_id, non_blocking=True)
+              if self.config.dataset.has_node_feat:
+                data['node_embed'] = batch_data[dd][ff]['node_embed'].pin_memory().to(gpu_id, non_blocking=True)
+                data['node_embed_idx_gnn'] = batch_data[dd][ff]['node_embed_idx_gnn'].pin_memory().to(gpu_id, non_blocking=True)
+                data['label_embed'] = batch_data[dd][ff]['label_embed'].pin_memory().to(gpu_id, non_blocking=True)
               data['edges'] = batch_data[dd][ff]['edges'].pin_memory().to(gpu_id, non_blocking=True)
               data['node_idx_gnn'] = batch_data[dd][ff]['node_idx_gnn'].pin_memory().to(gpu_id, non_blocking=True)
               data['node_idx_feat'] = batch_data[dd][ff]['node_idx_feat'].pin_memory().to(gpu_id, non_blocking=True)
@@ -296,6 +319,8 @@ class GranRunner(object):
       ### Generate Graphs
       A_pred = []
       num_nodes_pred = []
+      if self.config.dataset.has_node_feat:
+        node_embed_pred = []
       num_test_batch = int(np.ceil(self.num_test_gen / self.test_conf.batch_size))
 
       gen_run_time = []
@@ -306,15 +331,24 @@ class GranRunner(object):
           input_dict['is_sampling']=True
           input_dict['batch_size']=self.test_conf.batch_size
           input_dict['num_nodes_pmf']=self.num_nodes_pmf_train
-          A_tmp = model(input_dict)
+          if self.config.dataset.has_node_feat:
+            A_tmp, node_embed_tmp = model(input_dict)
+          else:
+            A_tmp = model(input_dict)
           gen_run_time += [time.time() - start_time]
           A_pred += [aa.data.cpu().numpy() for aa in A_tmp]
           num_nodes_pred += [aa.shape[0] for aa in A_tmp]
+          if self.config.dataset.has_node_feat:
+            node_embed_pred += [aa.data.cpu().numpy() for aa in node_embed_tmp]
 
       logger.info('Average test time per mini-batch = {}'.format(
           np.mean(gen_run_time)))
-          
-      graphs_gen = [get_graph(aa) for aa in A_pred]
+      
+      if self.config.dataset.has_node_feat:
+        graphs_gen = [get_graph_embed(A_pred[ii], node_embed_pred[ii]) for ii in range(len(A_pred))]
+
+      else:
+        graphs_gen = [get_graph(aa) for aa in A_pred]
 
     ### Visualize Generated Graphs
     if self.is_vis:
@@ -339,19 +373,26 @@ class GranRunner(object):
         vis_graphs += [CGs[0]]
 
       if self.is_single_plot:
-        draw_graph_list(vis_graphs, num_row, num_col, fname=save_name, layout='spring')
+        if self.config.dataset.has_node_feat:
+          draw_graph_list_embed(vis_graphs, num_row, num_col, fname="test_graphs")
+        else:
+          draw_graph_list(vis_graphs, num_row, num_col, fname=save_name, layout='spring')
       else:
+        ## Currently, embedding graphs don't have this plot
         draw_graph_list_separate(vis_graphs, fname=save_name[:-4], is_single=True, layout='spring')
 
       save_name = os.path.join(self.config.save_dir, 'train_graphs.png')
 
       if self.is_single_plot:
-        draw_graph_list(
-            self.graphs_train[:self.num_vis],
-            num_row,
-            num_col,
-            fname=save_name,
-            layout='spring')
+        if self.config.dataset.has_node_feat:
+          draw_graph_list_embed(self.graphs_train[:self.num_vis], num_row, num_col, fname="train_graphs")
+        else:
+          draw_graph_list(
+              self.graphs_train[:self.num_vis],
+              num_row,
+              num_col,
+              fname=save_name,
+              layout='spring')
       else:      
         draw_graph_list_separate(
             self.graphs_train[:self.num_vis],

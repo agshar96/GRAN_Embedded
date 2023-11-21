@@ -32,6 +32,7 @@ def main():
   print("<" * 80)
 
   # Run the experiment
+  args.test = True #Comment while training
   try:
     runner = eval(config.runner)(config)
     if not args.test:

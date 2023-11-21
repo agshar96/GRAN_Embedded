@@ -165,7 +165,10 @@ class GRANMixtureBernoulli(nn.Module):
     self.output_dim = 1
     self.num_mix_component = config.model.num_mix_component
     self.has_rand_feat = False # use random feature instead of 1-of-K encoding
-    self.att_edge_dim = 64
+    self.att_edge_dim = 16 #64
+    if config.dataset.has_node_feat:
+      self.node_embedding_in_dim = config.model.node_embedding_dim
+      self.node_embedding_out_dim = 16 ## Currently not added to config
 
     self.output_theta = nn.Sequential(
         nn.Linear(self.hidden_dim, self.hidden_dim),
@@ -180,11 +183,26 @@ class GRANMixtureBernoulli(nn.Module):
         nn.Linear(self.hidden_dim, self.hidden_dim),
         nn.ReLU(inplace=True),
         nn.Linear(self.hidden_dim, self.num_mix_component))
+    
+    self.output_embed = nn.Sequential(
+      nn.Linear(self.hidden_dim, self.hidden_dim),
+      nn.ReLU(inplace=True),
+      nn.Linear(self.hidden_dim, self.hidden_dim),
+      nn.ReLU(inplace=True),
+      nn.Linear(self.hidden_dim, self.node_embedding_in_dim)
+    )
 
     if self.dimension_reduce:
       self.embedding_dim = config.model.embedding_dim
       self.decoder_input = nn.Sequential(
           nn.Linear(self.max_num_nodes, self.embedding_dim))
+      if config.dataset.has_node_feat:
+        self.decoder_embedding = nn.Sequential(
+          nn.Linear(self.node_embedding_in_dim, self.node_embedding_out_dim)
+        )
+        self.decoder_combine = nn.Sequential(
+          nn.Linear(self.node_embedding_out_dim + self.embedding_dim, self.hidden_dim)
+        )
     else:
       self.embedding_dim = self.max_num_nodes
 
@@ -206,16 +224,24 @@ class GRANMixtureBernoulli(nn.Module):
                  edges=None,
                  node_idx_gnn=None,
                  node_idx_feat=None,
-                 att_idx=None):
+                 att_idx=None,
+                 node_embed_pad = None,
+                 node_embed_idx_gnn = None):
     """ generate adj in row-wise auto-regressive fashion """
 
     B, C, N_max, _ = A_pad.shape
     H = self.hidden_dim
     K = self.block_size
     A_pad = A_pad.view(B * C * N_max, -1)
+    if self.config.dataset.has_node_feat:
+      node_embed_pad = node_embed_pad.view(B*C*N_max, -1)
 
     if self.dimension_reduce:
       node_feat = self.decoder_input(A_pad)  # BCN_max X H
+      if self.config.dataset.has_node_feat:
+        embed_feat = self.decoder_embedding(node_embed_pad)
+        node_feat = self.decoder_combine(torch.cat((node_feat, embed_feat), dim=1))
+
     else:
       node_feat = A_pad  # BCN_max X N_max
 
@@ -256,8 +282,14 @@ class GRANMixtureBernoulli(nn.Module):
 
     log_theta = self.output_theta(diff)  # B X (tt+K)K
     log_alpha = self.output_alpha(diff)  # B X (tt+K)K
+    if self.config.dataset.has_node_feat:
+      node_embed_out = node_state[node_embed_idx_gnn]
+      output_embed = self.output_embed(node_embed_out)
     log_theta = log_theta.view(-1, self.num_mix_component)  # B X CN(N-1)/2 X K
     log_alpha = log_alpha.view(-1, self.num_mix_component)  # B X CN(N-1)/2 X K
+
+    if self.config.dataset.has_node_feat:
+      return log_theta, log_alpha, output_embed
 
     return log_theta, log_alpha
 
@@ -276,11 +308,14 @@ class GRANMixtureBernoulli(nn.Module):
           N_pad = N
 
         A = torch.zeros(B, N_pad, N_pad).to(self.device)
+        if self.config.dataset.has_node_feat:
+          node_embed = torch.zeros(B, N_pad, self.node_embedding_in_dim).to(self.device)
         dim_input = self.embedding_dim if self.dimension_reduce else self.max_num_nodes
 
         ### cache node state for speed up
         node_state = torch.zeros(B, N_pad, dim_input).to(self.device)
-
+        # if self.config.dataset.has_node_feat:
+        #   embed_state = torch.zeros(B, N_pad, self.node_embedding_out_dim).to(self.device)
         for ii in range(0, N_pad, S):
           # for ii in range(0, 3530, S):
           jj = ii + K
@@ -294,11 +329,17 @@ class GRANMixtureBernoulli(nn.Module):
           if ii >= K:
             if self.dimension_reduce:
               node_state[:, ii - K:ii, :] = self.decoder_input(A[:, ii - K:ii, :N])
+              if self.config.dataset.has_node_feat:
+                embed_state = self.decoder_embedding(node_embed[:, ii - K:ii, :])
+                node_state[:, :ii, :] = self.decoder_combine(torch.cat((node_state[:, ii - K:ii, :], embed_state), dim=-1))
             else:
               node_state[:, ii - K:ii, :] = A[:, ii - S:ii, :N]
           else:
             if self.dimension_reduce:
               node_state[:, :ii, :] = self.decoder_input(A[:, :ii, :N])
+              if self.config.dataset.has_node_feat:
+                embed_state = self.decoder_embedding(node_embed[:, :ii, :])
+                node_state[:, :ii, :] = self.decoder_combine(torch.cat((node_state[:, :ii, :], embed_state), dim=-1))
             else:
               node_state[:, :ii, :] = A[:, ii - S:ii, :N]
 
@@ -344,11 +385,18 @@ class GRANMixtureBernoulli(nn.Module):
           idx_row, idx_col = np.meshgrid(np.arange(ii, jj), np.arange(jj))
           idx_row = torch.from_numpy(idx_row.reshape(-1)).long().to(self.device)
           idx_col = torch.from_numpy(idx_col.reshape(-1)).long().to(self.device)
+          if self.config.dataset.has_node_feat:
+            idx_node = torch.from_numpy(np.arange(ii, jj)).long().to(self.device)
 
           diff = node_state_out[:,idx_row, :] - node_state_out[:,idx_col, :]  # B X (ii+K)K X H
           diff = diff.view(-1, node_state.shape[2])
           log_theta = self.output_theta(diff)
           log_alpha = self.output_alpha(diff)
+
+          if self.config.dataset.has_node_feat:
+            node_embed_out = self.output_embed(
+              node_state_out[:,idx_node,:].view(-1, node_state.shape[2])
+            ).view(B, -1, self.node_embedding_in_dim)
 
           log_theta = log_theta.view(B, -1, K, self.num_mix_component)  # B X K X (ii+K) X L
           log_theta = log_theta.transpose(1, 2)  # B X (ii+K) X K X L
@@ -364,10 +412,17 @@ class GRANMixtureBernoulli(nn.Module):
           prob = torch.stack(prob, dim=0)
           A[:, ii:jj, :jj] = torch.bernoulli(prob[:, :jj - ii, :])
 
+          if self.config.dataset.has_node_feat:
+            node_embed[:, ii:jj, :] = node_embed_out
+
         ### make it symmetric
         if self.is_sym:
           A = torch.tril(A, diagonal=-1)
           A = A + A.transpose(1, 2)
+
+        if self.config.dataset.has_node_feat:
+          # test_vec = node_embed[0, -1, :]
+          return A, node_embed
 
         return A
 
@@ -409,6 +464,10 @@ class GRANMixtureBernoulli(nn.Module):
     batch_size = input_dict[
         'batch_size'] if 'batch_size' in input_dict else None
     A_pad = input_dict['adj'] if 'adj' in input_dict else None
+    if self.config.dataset.has_node_feat:
+      node_embed_pad = input_dict['node_embed'] if 'node_embed' in input_dict else None
+      node_embed_idx_gnn = input_dict['node_embed_idx_gnn'] if 'node_embed_idx_gnn' in input_dict else None
+      label_embed = input_dict['label_embed'] if 'label_embed' in input_dict else None
     node_idx_gnn = input_dict[
         'node_idx_gnn'] if 'node_idx_gnn' in input_dict else None
     node_idx_feat = input_dict[
@@ -430,22 +489,43 @@ class GRANMixtureBernoulli(nn.Module):
       B, _, N, _ = A_pad.shape
 
       ### compute adj loss
-      log_theta, log_alpha = self._inference(
+      if self.config.dataset.has_node_feat:
+        log_theta, log_alpha, output_embed  = self._inference(
           A_pad=A_pad,
           edges=edges,
           node_idx_gnn=node_idx_gnn,
           node_idx_feat=node_idx_feat,
-          att_idx=att_idx)
+          att_idx=att_idx,
+          node_embed_pad = node_embed_pad,
+          node_embed_idx_gnn = node_embed_idx_gnn)
+      else:
+        log_theta, log_alpha = self._inference(
+            A_pad=A_pad,
+            edges=edges,
+            node_idx_gnn=node_idx_gnn,
+            node_idx_feat=node_idx_feat,
+            att_idx=att_idx)
 
       num_edges = log_theta.shape[0]
 
       adj_loss = mixture_bernoulli_loss(label, log_theta, log_alpha,
                                         self.adj_loss_func, subgraph_idx, subgraph_idx_base,
                                         self.num_canonical_order)
+      if self.config.dataset.has_node_feat:
+        criterion = nn.MSELoss()
+        embed_loss = criterion(output_embed, label_embed)
+        # print("Output embed shape: ", output_embed.shape, " label_embed shape: ", label_embed.shape)
+        # print("embed loss: ", embed_loss)
 
+      if self.config.dataset.has_node_feat:
+        return adj_loss + embed_loss
       return adj_loss
+
     else:
-      A = self._sampling(batch_size)
+      if self.config.dataset.has_node_feat:
+        A, node_embed_out = self._sampling(batch_size)
+      else:
+        A = self._sampling(batch_size)
 
       ### sample number of nodes
       num_nodes_pmf = torch.from_numpy(num_nodes_pmf).to(self.device)
@@ -455,6 +535,12 @@ class GRANMixtureBernoulli(nn.Module):
       A_list = [
           A[ii, :num_nodes[ii], :num_nodes[ii]] for ii in range(batch_size)
       ]
+      if self.config.dataset.has_node_feat:
+        node_embed_list = [
+          node_embed_out[ii, :num_nodes[ii], :num_nodes[ii]] for ii in range(batch_size)
+         ]
+        return A_list, node_embed_list
+
       return A_list
 
 
