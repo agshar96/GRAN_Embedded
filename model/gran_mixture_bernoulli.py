@@ -518,7 +518,7 @@ class GRANMixtureBernoulli(nn.Module):
         # print("embed loss: ", embed_loss)
 
       if self.config.dataset.has_node_feat:
-        return adj_loss + embed_loss
+        return adj_loss, embed_loss
       return adj_loss
 
     else:

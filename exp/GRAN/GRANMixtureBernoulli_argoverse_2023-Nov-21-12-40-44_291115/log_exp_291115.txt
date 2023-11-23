@@ -1,0 +1,5 @@
+INFO  | 11/21/2023 12:40:44 PM | File run_exp.py           | Line 26    | Writing log file to exp/GRAN/GRANMixtureBernoulli_argoverse_2023-Nov-21-12-40-44_291115/log_exp_291115.txt
+INFO  | 11/21/2023 12:40:44 PM | File run_exp.py           | Line 27    | Exp instance id = 291115
+INFO  | 11/21/2023 12:40:44 PM | File run_exp.py           | Line 28    | Exp comment = None
+INFO  | 11/21/2023 12:40:44 PM | File run_exp.py           | Line 29    | Config =
+INFO  | 11/21/2023 12:40:46 PM | File gran_runner.py       | Line 140   | Train/val/test = 1051/262/263

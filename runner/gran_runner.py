@@ -149,7 +149,7 @@ class GranRunner(object):
     self.graphs_dev = self.graphs[:self.num_dev]
     self.graphs_test = self.graphs[self.num_train:]
     
-    #draw_graph_list_embed(self.graphs_train[:2], 1, 2)
+    # draw_graph_list_embed(self.graphs_train[6:8], 1, 2)
 
     self.config.dataset.sparse_ratio = compute_edge_ratio(self.graphs_train)
     logger.info('No Edges vs. Edges in training set = {}'.format(
@@ -246,7 +246,11 @@ class GranRunner(object):
             iter_count += 1
         
         
-        avg_train_loss = .0        
+        avg_train_loss = .0
+        if self.config.dataset.has_node_feat:
+          avg_train_adj_loss = 0
+          avg_train_embed_loss = 0
+
         for ff in range(self.dataset_conf.num_fwd_pass):
           batch_fwd = []
           
@@ -268,8 +272,15 @@ class GranRunner(object):
               batch_fwd.append((data,))
 
           if batch_fwd:
-            train_loss = model(*batch_fwd).mean()              
-            avg_train_loss += train_loss              
+            if self.config.dataset.has_node_feat:
+              train_adj_loss , train_embed_loss = model(*batch_fwd)
+              train_loss = (train_adj_loss + train_embed_loss).mean()
+              avg_train_loss += train_loss 
+              avg_train_adj_loss += train_adj_loss.mean()
+              avg_train_embed_loss += train_embed_loss.mean()
+            else:
+              train_loss = model(*batch_fwd).mean()              
+              avg_train_loss += train_loss              
 
             # assign gradient
             train_loss.backward()
@@ -277,6 +288,11 @@ class GranRunner(object):
         # clip_grad_norm_(model.parameters(), 5.0e-0)
         optimizer.step()
         avg_train_loss /= float(self.dataset_conf.num_fwd_pass)
+        if self.config.dataset.has_node_feat:
+          avg_train_adj_loss /= float(self.dataset_conf.num_fwd_pass)
+          avg_train_embed_loss /= float(self.dataset_conf.num_fwd_pass)
+          train_adj_loss = float(avg_train_adj_loss.data.cpu().numpy())
+          train_embed_loss = float(avg_train_embed_loss.data.cpu().numpy())
         
         # reduce
         train_loss = float(avg_train_loss.data.cpu().numpy())
@@ -284,9 +300,16 @@ class GranRunner(object):
         self.writer.add_scalar('train_loss', train_loss, iter_count)
         results['train_loss'] += [train_loss]
         results['train_step'] += [iter_count]
+        if self.config.dataset.has_node_feat:
+          results['train_adj_loss'] += [train_adj_loss]
+          results['train_embed_loss'] += [train_embed_loss]
 
         if iter_count % self.train_conf.display_iter == 0 or iter_count == 1:
-          logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}".format(epoch + 1, iter_count, train_loss))
+          if self.config.dataset.has_node_feat:
+            logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}, train_adj_loss = {}, train_embed_loss = {}".format(
+              epoch + 1, iter_count, train_loss, train_adj_loss, train_embed_loss))
+          else:
+            logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}".format(epoch + 1, iter_count, train_loss))
 
       # snapshot model
       if (epoch + 1) % self.train_conf.snapshot_epoch == 0:
