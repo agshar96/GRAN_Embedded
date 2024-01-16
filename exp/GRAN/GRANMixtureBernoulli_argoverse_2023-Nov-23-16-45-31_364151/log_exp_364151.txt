@@ -1,6 +1,0 @@
-INFO  | 11/23/2023 04:45:31 PM | File run_exp.py           | Line 26    | Writing log file to exp/GRAN/GRANMixtureBernoulli_argoverse_2023-Nov-23-16-45-31_364151/log_exp_364151.txt
-INFO  | 11/23/2023 04:45:31 PM | File run_exp.py           | Line 27    | Exp instance id = 364151
-INFO  | 11/23/2023 04:45:31 PM | File run_exp.py           | Line 28    | Exp comment = None
-INFO  | 11/23/2023 04:45:31 PM | File run_exp.py           | Line 29    | Config =
-INFO  | 11/23/2023 04:45:36 PM | File gran_runner.py       | Line 140   | Train/val/test = 80/20/20
-INFO  | 11/23/2023 04:45:36 PM | File gran_runner.py       | Line 155   | No Edges vs. Edges in training set = 233.79917649260716

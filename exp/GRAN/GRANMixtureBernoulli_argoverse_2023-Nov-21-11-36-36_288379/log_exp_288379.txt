@@ -1,7 +1,0 @@
-INFO  | 11/21/2023 11:36:36 AM | File run_exp.py           | Line 26    | Writing log file to exp/GRAN/GRANMixtureBernoulli_argoverse_2023-Nov-21-11-36-36_288379/log_exp_288379.txt
-INFO  | 11/21/2023 11:36:36 AM | File run_exp.py           | Line 27    | Exp instance id = 288379
-INFO  | 11/21/2023 11:36:36 AM | File run_exp.py           | Line 28    | Exp comment = None
-INFO  | 11/21/2023 11:36:36 AM | File run_exp.py           | Line 29    | Config =
-INFO  | 11/21/2023 11:36:37 AM | File gran_runner.py       | Line 140   | Train/val/test = 80/20/20
-INFO  | 11/21/2023 11:36:37 AM | File gran_runner.py       | Line 155   | No Edges vs. Edges in training set = 233.79917649260716
-INFO  | 11/21/2023 11:36:42 AM | File gran_runner.py       | Line 289   | NLL Loss @ epoch 0001 iteration 00000001 = 3235.639404296875
