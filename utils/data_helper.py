@@ -185,6 +185,56 @@ def graph_load_from_torchfile(data_dir, file_name, name='argoverse', node_attrib
 
   return graphs
 
+def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, normalized = False):
+    '''
+    This function creates a grid with x_nodes in x-direction and y_nodes
+    in y-direction. Each node has a 2D coordinate associated with it.
+    The side-x and side-y specify side length in x and direction respectively.
+
+    x_nodes: Number of nodes in x-direction
+    y_nodes: Number of nodes in y-direction
+    side_x: Sidelength in x-direction
+    side_y: Sidelength in y-direction
+    '''
+
+    if side_x is None and side_y is not None:
+        side_x = side_y
+    elif side_x is not None and side_y is None:
+        side_y = side_x
+    elif side_x is None and side_y is None:
+        side_x = side_y = 1
+    
+    mean_tensor = torch.tensor([0,0])
+    std_tensor = torch.tensor([1,1])
+
+    if normalized:
+      coord_list = []
+      for i in range(x_nodes):
+        for j in range(y_nodes):
+            coords = torch.tensor([float(i*side_x), float(j*side_y)])
+            coord_list.append(coords)
+      coord_list = torch.stack(coord_list)
+      mean_tensor = torch.mean(coord_list, dim=0)
+      std_tensor = torch.var(coord_list, dim = 0)
+    
+    G = nx.Graph()
+    num_node = 0
+    for i in range(x_nodes):
+        for j in range(y_nodes):
+            coords = torch.tensor([float(i*side_x), float(j*side_y)]) - mean_tensor
+            coords = coords / std_tensor
+            G.add_node(num_node, features = coords)
+
+            if j > 0:
+                G.add_edge(num_node, num_node-1)
+                G.add_edge(num_node -1, num_node)
+            if i > 0:
+                G.add_edge(num_node, num_node - y_nodes)
+                G.add_edge(num_node - y_nodes, num_node)
+            num_node += 1
+
+    return G
+
 
 def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
   npr = np.random.RandomState(seed)
@@ -199,7 +249,7 @@ def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
   elif graph_type == 'grid_small':
     graphs = []
     for _ in range(50):
-      graphs.append(nx.grid_2d_graph(3,3))
+      graphs.append(nx.grid_2d_graph(10, 10))
   elif graph_type == 'lobster':
     graphs = []
     p1 = 0.7
@@ -241,10 +291,14 @@ def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
         graph_labels=True)
   elif graph_type == 'argoverse':
     graphs = graph_load_from_torchfile(data_dir,
-                                       file_name='subsample_100_graph.pkl',
+                                       file_name='square_graphs_50x50.pkl',
                                        name='argoverse',
                                        node_attributes = True,
                                        graph_labels=True)
+  elif graph_type == 'grid_embed':
+    graphs = []
+    for _ in range(50):
+        graphs.append(create_grid_with_embed(3,3))
 
   num_nodes = [gg.number_of_nodes() for gg in graphs]
   num_edges = [gg.number_of_edges() for gg in graphs]

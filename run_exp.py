@@ -14,11 +14,13 @@ torch.set_printoptions(profile='full')
 
 def main():
   args = parse_arguments()
-  config = get_config(args.config_file, is_test=args.test)
+  config = get_config(args.config_file, is_test=(args.test or args.test_completion))
   np.random.seed(config.seed)
   torch.manual_seed(config.seed)
   torch.cuda.manual_seed_all(config.seed)
   config.use_gpu = config.use_gpu and torch.cuda.is_available()
+  if not hasattr(config.dataset, "has_node_feat"):
+    config.dataset.has_node_feat = False
 
   # log info
   log_file = os.path.join(config.save_dir, "log_exp_{}.txt".format(config.run_id))
@@ -32,11 +34,14 @@ def main():
   print("<" * 80)
 
   # Run the experiment
-  # args.test = True #Comment while training
+  args.test = True #Comment while training
+  # args.test_completion = True
   try:
     runner = eval(config.runner)(config)
-    if not args.test:
+    if not (args.test or args.test_completion):
       runner.train()
+    elif args.test_completion:
+      runner.test_completion()
     else:
       runner.test()
   except:

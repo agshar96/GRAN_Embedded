@@ -53,6 +53,7 @@ class GRANData(object):
       for index in tqdm(range(self.num_graphs)):
         G = self.graphs[index]
         if config.dataset.has_node_feat:
+          # adj_test = nx.to_numpy_array(G)
           data, embeddings = self._get_graph_data(G, has_node_embed = True)
         else:
           data = self._get_graph_data(G)
@@ -65,7 +66,7 @@ class GRANData(object):
     else:
       self.file_names = glob.glob(os.path.join(self.save_path, '*.p'))
 
-  def _get_graph_data(self, G, has_node_embed=False):
+  def  _get_graph_data(self, G, has_node_embed=False):
     node_degree_list = [(n, d) for n, d in G.degree()]
 
     adj_0 = np.array(nx.to_numpy_array(G))
@@ -80,7 +81,9 @@ class GRANData(object):
     adj_1 = np.array(
         nx.to_numpy_array(G, nodelist=nodelist_1))
     if has_node_embed:
-      node_embed_1 = node_embed_0[nodelist_1]
+      ## This code finds index where node is equal to node in nodelist_1
+      ## For fingding the index we use np.argmax to return the first match
+      node_embed_1 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in nodelist_1])
 
     ### Degree ascent ranking
     degree_sequence = sorted(node_degree_list, key=lambda tt: tt[1])
@@ -88,7 +91,7 @@ class GRANData(object):
     adj_2 = np.array(
         nx.to_numpy_array(G, nodelist=nodelist_2))
     if has_node_embed:
-      node_embed_2 = node_embed_0[nodelist_2]
+      node_embed_2 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in nodelist_2])
 
     ### BFS & DFS from largest-degree node
     CGs = [G.subgraph(c) for c in nx.connected_components(G)]
@@ -111,10 +114,10 @@ class GRANData(object):
 
     adj_3 = np.array(nx.to_numpy_array(G, nodelist=node_list_bfs))
     if has_node_embed:
-      node_embed_3 = node_embed_0[node_list_bfs]
+      node_embed_3 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list_bfs])
     adj_4 = np.array(nx.to_numpy_array(G, nodelist=node_list_dfs))
     if has_node_embed:
-      node_embed_4 = node_embed_0[node_list_dfs]
+      node_embed_4 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list_dfs])
 
     ### k-core
     num_core = nx.core_number(G)
@@ -134,7 +137,7 @@ class GRANData(object):
 
     adj_5 = np.array(nx.to_numpy_array(G, nodelist=node_list))
     if has_node_embed:
-      node_embed_5 = node_embed_0[node_list]
+      node_embed_5 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list])
 
     if self.num_canonical_order == 5:
       adj_list = [adj_0, adj_1, adj_3, adj_4, adj_5]

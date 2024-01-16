@@ -12,7 +12,7 @@ def parse_arguments():
       '-c',
       '--config_file',
       type=str,
-      default="config/gran_argoverse.yaml",
+      default="config/gran_grid_embed.yaml",
       # required=True,
       help="Path of config file")
   parser.add_argument(
@@ -28,6 +28,7 @@ def parse_arguments():
         CRITICAL")
   parser.add_argument('-m', '--comment', help="Experiment comment")
   parser.add_argument('-t', '--test', help="Test model", action='store_true')
+  parser.add_argument('-tc', '--test_completion', help="Test model", action='store_true')
   args = parser.parse_args()
 
   return args
