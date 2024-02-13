@@ -26,7 +26,7 @@ model:
   is_sym: true
   block_size: 1
   sample_stride: 1
-  max_num_nodes: 100
+  max_num_nodes: 9
   hidden_dim: 128
   embedding_dim: 128
   num_GNN_layers: 7
@@ -60,9 +60,8 @@ test:
   is_vis: true
   is_single_plot: true # visualize `num_vis` samples in a single image
   is_test_ER: false # test Erdos-Renyi baseline
-  num_vis: 1
-  vis_num_row: 1 # visualize `num_vis` samples in `vis_num_row` rows
+  num_vis: 20
+  vis_num_row: 5 # visualize `num_vis` samples in `vis_num_row` rows
   better_vis: true
-  animated_vis: true ## If this is true better_vis is set to false, to ease the code
   test_model_dir: exp/GRAN/GRANMixtureBernoulli_grid_small_2024-Jan-05-13-58-44_945117/
   test_model_name: model_snapshot_0000150.pth

@@ -41,6 +41,9 @@ class GRANData(object):
             self.stride, self.num_canonical_order, self.node_order))
     if self.config.dataset.has_node_feat:
       self.embed_save_path = self.save_path + '_embed'
+    
+    if self.config.dataset.has_sub_nodes:
+      self.subnode_save_path = self.save_path + '_subnode'
 
     if not os.path.isdir(self.save_path) or self.is_overwrite_precompute:
       self.file_names = []
@@ -48,11 +51,15 @@ class GRANData(object):
         os.makedirs(self.save_path)
         if self.config.dataset.has_node_feat:
           os.makedirs(self.embed_save_path)
+        if self.config.dataset.has_sub_nodes:
+          os.makedirs(self.subnode_save_path)
 
       self.config.dataset.save_path = self.save_path
       for index in tqdm(range(self.num_graphs)):
         G = self.graphs[index]
-        if config.dataset.has_node_feat:
+        if config.dataset.has_sub_nodes:
+          data, embeddings, subnodes = self._get_graph_data(G, has_node_embed = True, has_subnode=True)
+        elif config.dataset.has_node_feat:
           # adj_test = nx.to_numpy_array(G)
           data, embeddings = self._get_graph_data(G, has_node_embed = True)
         else:
@@ -62,16 +69,47 @@ class GRANData(object):
         if config.dataset.has_node_feat:
           tmp_path_embedding = os.path.join(self.embed_save_path, '{}_{}.p'.format(tag, index))
           pickle.dump(embeddings, open(tmp_path_embedding, 'wb'))
+        if config.dataset.has_sub_nodes:
+          tmp_path_subnode = os.path.join(self.subnode_save_path, '{}_{}.p'.format(tag, index))
+          pickle.dump(subnodes, open(tmp_path_subnode, 'wb'))
         self.file_names += [tmp_path]
     else:
       self.file_names = glob.glob(os.path.join(self.save_path, '*.p'))
 
-  def  _get_graph_data(self, G, has_node_embed=False):
+  def get_new_edge_data(self, G, adj, nodelist):
+    # get edge data from original graph
+    edges = G.edges()
+    edge_subnode_dict = {}
+    for u,v in edges:
+        edge_subnode_dict[(u,v)] = G[u][v]['subnodes']
+        edge_subnode_dict[(v,u)] = G[v][u]['subnodes'].flip(dims=(0,))
+
+    # get a mapping from old to new nodes
+    mapping = {}
+    for old_node, new_node in zip(G.nodes(), nodelist):
+      mapping[old_node] = new_node
+    
+    # Make adjacency lower traingular
+    adj_l = np.tril(adj)
+    rows, cols = np.nonzero(adj_l)
+
+    # Now, using the above mapping, assign the correct subnodes to the correct edge
+    edge_subnode_out = {}
+    for x,y in zip(rows, cols):
+      old_x = mapping[x]
+      old_y = mapping[y]
+      edge_subnode_out[(x,y)] = edge_subnode_dict[(old_x, old_y)]
+    
+    return edge_subnode_out
+
+  def  _get_graph_data(self, G, has_node_embed=False, has_subnode=False):
     node_degree_list = [(n, d) for n, d in G.degree()]
 
     adj_0 = np.array(nx.to_numpy_array(G))
     if has_node_embed:
       node_embed_0 = np.array(list(G.nodes(data=True)))
+    if has_subnode:
+      edge_subnote_out_0 = self.get_new_edge_data(G, adj_0, list(G.nodes()))
 
     ### Degree descent ranking
     # N.B.: largest-degree node may not be unique
@@ -80,11 +118,15 @@ class GRANData(object):
     nodelist_1= [dd[0] for dd in degree_sequence]
     adj_1 = np.array(
         nx.to_numpy_array(G, nodelist=nodelist_1))
+    
     if has_node_embed:
       ## This code finds index where node is equal to node in nodelist_1
       ## For fingding the index we use np.argmax to return the first match
       node_embed_1 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in nodelist_1])
 
+    if has_subnode:
+      edge_subnote_out_1 = self.get_new_edge_data(G, adj_1, nodelist_1)
+  
     ### Degree ascent ranking
     degree_sequence = sorted(node_degree_list, key=lambda tt: tt[1])
     nodelist_2 = [dd[0] for dd in degree_sequence]
@@ -92,6 +134,9 @@ class GRANData(object):
         nx.to_numpy_array(G, nodelist=nodelist_2))
     if has_node_embed:
       node_embed_2 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in nodelist_2])
+
+    if has_subnode:
+      edge_subnote_out_2 = self.get_new_edge_data(G, adj_2, nodelist_2)
 
     ### BFS & DFS from largest-degree node
     CGs = [G.subgraph(c) for c in nx.connected_components(G)]
@@ -115,9 +160,14 @@ class GRANData(object):
     adj_3 = np.array(nx.to_numpy_array(G, nodelist=node_list_bfs))
     if has_node_embed:
       node_embed_3 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list_bfs])
+    if has_subnode:
+      edge_subnote_out_3 = self.get_new_edge_data(G, adj_3, node_list_bfs)
+
     adj_4 = np.array(nx.to_numpy_array(G, nodelist=node_list_dfs))
     if has_node_embed:
       node_embed_4 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list_dfs])
+    if has_subnode:
+      edge_subnote_out_4 = self.get_new_edge_data(G, adj_4, node_list_dfs)
 
     ### k-core
     num_core = nx.core_number(G)
@@ -139,54 +189,83 @@ class GRANData(object):
     if has_node_embed:
       node_embed_5 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list])
 
+    if has_subnode:
+      edge_subnote_out_5 = self.get_new_edge_data(G, adj_5, node_list)
+    
     if self.num_canonical_order == 5:
       adj_list = [adj_0, adj_1, adj_3, adj_4, adj_5]
       if has_node_embed:
         node_embed_list = [node_embed_0, node_embed_1, node_embed_2,
                           node_embed_3, node_embed_4, node_embed_5]
+      if has_subnode:
+        subnode_list = [edge_subnote_out_0, edge_subnote_out_1, edge_subnote_out_2,
+                        edge_subnote_out_3, edge_subnote_out_4, edge_subnote_out_5]
     else:
       if self.node_order == 'degree_decent':
         adj_list = [adj_1]
         if has_node_embed:
           node_embed_list = [node_embed_1]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_1]
       elif self.node_order == 'degree_accent':
         adj_list = [adj_2]
         if has_node_embed:
           node_embed_list = [node_embed_2]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_2]
       elif self.node_order == 'BFS':
         adj_list = [adj_3]
         if has_node_embed:
           node_embed_list = [node_embed_3]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_3]
       elif self.node_order == 'DFS':
         adj_list = [adj_4]
         if has_node_embed:
           node_embed_list = [node_embed_4]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_4]
       elif self.node_order == 'k_core':
         adj_list = [adj_5]
         if has_node_embed:
           node_embed_list = [node_embed_5]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_5]
       elif self.node_order == 'DFS+BFS':
         adj_list = [adj_4, adj_3]
         if has_node_embed:
           node_embed_list = [node_embed_4, node_embed_3]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_4,edge_subnote_out_3]
       elif self.node_order == 'DFS+BFS+k_core':
         adj_list = [adj_4, adj_3, adj_5]
         if has_node_embed:
           node_embed_list = [node_embed_4, node_embed_3, node_embed_5]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_4, edge_subnote_out_3, edge_subnote_out_5]
       elif self.node_order == 'DFS+BFS+k_core+degree_decent':
         adj_list = [adj_4, adj_3, adj_5, adj_1]
         if has_node_embed:
           node_embed_list = [node_embed_4, node_embed_3, node_embed_5, node_embed_1]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_4, edge_subnote_out_3, edge_subnote_out_5,
+                          edge_subnote_out_1]
       elif self.node_order == 'all':
         adj_list = [adj_4, adj_3, adj_5, adj_1, adj_0]
         if has_node_embed:
           node_embed_list = [node_embed_4, node_embed_3, node_embed_5, node_embed_1, node_embed_0]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_4, edge_subnote_out_3, edge_subnote_out_5, edge_subnote_out_1, edge_subnote_out_0]
       else:
         adj_list = [adj_0]
         if has_node_embed:
           node_embed_list = [node_embed_0]
+        if has_subnode:
+          subnode_list = [edge_subnote_out_0]
 
     # print('number of nodes = {}'.format(adj_0.shape[0]))
+    if has_subnode:
+      return adj_list, node_embed_list, subnode_list
     if has_node_embed:
       return adj_list, node_embed_list
     else:
@@ -202,6 +281,9 @@ class GRANData(object):
     if self.config.dataset.has_node_feat:
       embed_path = os.path.join(self.embed_save_path,self.file_names[index].split("/")[-1]) 
       node_embed_list = pickle.load(open(embed_path, 'rb'))
+    if self.config.dataset.has_sub_nodes:
+      subnode_path = os.path.join(self.subnode_save_path,self.file_names[index].split("/")[-1])
+      subnode_list = pickle.load(open(subnode_path, 'rb'))
 
     num_nodes = adj_list[0].shape[0]
     num_subgraphs = int(np.floor((num_nodes - K) / S) + 1)
@@ -238,6 +320,9 @@ class GRANData(object):
       if self.config.dataset.has_node_feat:
         node_embed_idx_gnn = []
         label_embed = []
+      if self.config.dataset.has_sub_nodes:
+        subnode_coords = []
+        subnode_labels = []
       label = []
       subgraph_size = []
       subgraph_idx = []
@@ -247,6 +332,7 @@ class GRANData(object):
       for ii in range(len(adj_list)):
         # loop over different orderings
         adj_full = adj_list[ii]
+        subnode_dict = subnode_list[ii]
         if self.config.dataset.has_node_feat:
           node_embed_output = node_embed_list[ii][:, 1]
           node_embed = np.array([item['features'].numpy() for item in node_embed_output])
@@ -306,7 +392,32 @@ class GRANData(object):
               np.concatenate([idx_row_gnn, idx_col_gnn],
                              axis=1).astype(np.int64)
           ]
-
+          '''
+          We make two arrays here, E = No.of edges
+          For each edge produced we save the cooresponding start and end coordinate in subnode_coords
+          subnode_coords shape Ex4 (2 for start, 2 for end)
+          For each edge we also produce all the subnodes. Here, we assume 10 subnodes.
+          subnode_labels: E x (2*num_sub_nodes) (since each subnode is 2D and 'num_sub_nodes' subnodes in total)
+          '''
+          if self.config.dataset.has_sub_nodes:
+            node_embed_start = node_embed[idx_row_gnn].reshape(idx_row_gnn.shape[0], -1)
+            node_embed_end = node_embed[idx_col_gnn].reshape(idx_row_gnn.shape[0], -1)
+            subnode_coords += [
+              np.concatenate([node_embed_start, node_embed_end],
+                             axis=1).astype(np.float32)
+            ]
+            subnode_tmp = []
+            for x,y in zip(idx_row_gnn, idx_col_gnn):
+              x = x.item()
+              y = y.item()
+              if (x,y) in subnode_dict:
+                subnode_tmp += [subnode_dict[(x,y)].numpy()[None, :].reshape(-1, 2*self.config.dataset.num_sub_nodes).astype(np.float32)]
+              elif (y,x) in subnode_dict:
+                subnode_tmp += [subnode_dict[(y,x)].flip(dims=(0,)).numpy()[None,:].reshape(-1, 2*self.config.dataset.num_sub_nodes).astype(np.float32)]
+              else:
+                subnode_tmp += [np.zeros((1,2*self.config.dataset.num_sub_nodes)).astype(np.float32)]
+            subnode_tmp = np.concatenate(subnode_tmp)
+            subnode_labels += [subnode_tmp]
           ### get predict label
           label += [
               adj_full[idx_row_gnn, idx_col_gnn].flatten().astype(np.uint8)
@@ -343,6 +454,9 @@ class GRANData(object):
         data['node_embed'] = np.expand_dims(node_embed, axis=0)
         data['node_embed_idx_gnn'] = np.concatenate(node_embed_idx_gnn)
         data['label_embed'] = np.concatenate(label_embed)
+      if self.config.dataset.has_sub_nodes:
+        data['subnode_coords'] = np.concatenate(subnode_coords)
+        data['subnode_labels'] = np.concatenate(subnode_labels)
       data['edges'] = torch.cat(edges, dim=1).t().long()
       data['node_idx_gnn'] = np.concatenate(node_idx_gnn)
       data['node_idx_feat'] = np.concatenate(node_idx_feat)
@@ -406,7 +520,7 @@ class GRANData(object):
                         'constant',
                         constant_values=0.0) for ii, bb in enumerate(batch_pass)
                 ],
-                axis=0)).float()
+                axis=0)).float() # B X N X 2
 
       idx_base = np.array([0] + [bb['num_count'] for bb in batch_pass])
       idx_base = np.cumsum(idx_base)
@@ -422,6 +536,23 @@ class GRANData(object):
                   for ii, bb in enumerate(batch_pass)
               ],
               axis=0)).long()
+      
+      if self.config.dataset.has_sub_nodes:
+        data['subnode_coords'] = torch.from_numpy(
+          np.concatenate(
+            [
+                bb['subnode_coords'] for bb in batch_pass
+            ],
+            axis=0)).float()
+          
+        
+        data['subnode_labels'] = torch.from_numpy(
+          np.concatenate(
+            [
+              bb['subnode_labels'] for bb in batch_pass
+            ],
+          axis=0)).float()
+        
 
       if self.config.dataset.has_node_feat:
         data['node_embed_idx_gnn'] = torch.from_numpy(

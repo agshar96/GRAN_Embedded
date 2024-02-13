@@ -12,7 +12,7 @@ def parse_arguments():
       '-c',
       '--config_file',
       type=str,
-      default="config/gran_grid_embed.yaml",
+      default="config/gran_subnode.yaml",
       # required=True,
       help="Path of config file")
   parser.add_argument(

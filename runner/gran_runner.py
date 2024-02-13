@@ -25,7 +25,7 @@ from utils.train_helper import data_to_gpu, snapshot, load_model, EarlyStopper
 from utils.data_helper import *
 from utils.eval_helper import *
 from utils.dist_helper import compute_mmd, gaussian_emd, gaussian, emd, gaussian_tv
-from utils.vis_helper import draw_graph_list, draw_graph_list_separate, draw_graph_list_embed, draw_graph_nodes_list, draw_animated_plot
+from utils.vis_helper import draw_graph_list, draw_graph_list_separate, draw_graph_list_embed, draw_graph_nodes_list, draw_animated_plot, draw_graph_subnode_list
 from utils.data_parallel import DataParallel
 
 
@@ -83,6 +83,35 @@ def get_graph_embed(adj, node_embed):
     
     nx.set_node_attributes(G, feature_dict)
     return G
+
+def get_graph_subnodes(adj, node_embed, subnode_coords):
+
+    adj = np.asmatrix(adj)
+    G = nx.from_numpy_array(adj)
+    # for row in range(adj.shape[0]):
+    #   for col in range(row+1):
+    #     if adj[row, col] == 1:
+    #       G[row][col].update({'subnodes': subnode_coords[u,v]})
+    #       test = subnode_coords[row,col, :]
+    #       print('tested')
+
+    feature_dict = {}
+    for node_id, feature_vector in enumerate(node_embed):
+        feature_dict[node_id] = {'features': feature_vector}
+    
+    edges = G.edges()
+    for u,v in edges:
+        if v <= u:
+          subnodes = subnode_coords[u,v].reshape(-1,2)
+          G[u][v].update({'subnodes': subnodes})
+        elif v > u:
+          subnodes = subnode_coords[v,u].reshape(-1,2)
+          subnodes = np.flip(subnodes, axis=0)
+          G[u][v].update({'subnodes': subnodes})
+    
+    nx.set_node_attributes(G, feature_dict)
+    return G
+
 
 def evaluate(graph_gt, graph_pred, degree_only=True):
   mmd_degree = degree_stats(graph_gt, graph_pred)
@@ -150,7 +179,7 @@ class GranRunner(object):
     self.graphs_dev = self.graphs[:self.num_dev]
     self.graphs_test = self.graphs[self.num_train:]
     
-    # draw_graph_list_embed(self.graphs_train[6:8], 1, 2)
+    # draw_graph_subnode_list(self.graphs_train[6:8], 1, 2)
 
     self.config.dataset.sparse_ratio = compute_edge_ratio(self.graphs_train)
     logger.info('No Edges vs. Edges in training set = {}'.format(
@@ -203,6 +232,8 @@ class GranRunner(object):
           weight_decay=self.train_conf.wd)
     elif self.train_conf.optimizer == 'Adam':
       optimizer = optim.Adam(params, lr=self.train_conf.lr, weight_decay=self.train_conf.wd)
+    elif self.train_conf.optimizer == 'AdamW':
+      optimizer = optim.AdamW(params, lr=self.train_conf.lr)
     else:
       raise ValueError("Non-supported optimizer!")
 
@@ -250,6 +281,8 @@ class GranRunner(object):
         
         
         avg_train_loss = .0
+        if self.config.dataset.has_sub_nodes:
+          avg_train_subnode_loss = 0
         if self.config.dataset.has_node_feat:
           avg_train_adj_loss = 0
           avg_train_embed_loss = 0
@@ -265,6 +298,9 @@ class GranRunner(object):
                 data['node_embed'] = batch_data[dd][ff]['node_embed'].pin_memory().to(gpu_id, non_blocking=True)
                 data['node_embed_idx_gnn'] = batch_data[dd][ff]['node_embed_idx_gnn'].pin_memory().to(gpu_id, non_blocking=True)
                 data['label_embed'] = batch_data[dd][ff]['label_embed'].pin_memory().to(gpu_id, non_blocking=True)
+              if self.config.dataset.has_sub_nodes:
+                data['subnode_coords'] = batch_data[dd][ff]['subnode_coords'].pin_memory().to(gpu_id, non_blocking=True)
+                data['subnode_labels'] = batch_data[dd][ff]['subnode_labels'].pin_memory().to(gpu_id, non_blocking=True)
               data['edges'] = batch_data[dd][ff]['edges'].pin_memory().to(gpu_id, non_blocking=True)
               data['node_idx_gnn'] = batch_data[dd][ff]['node_idx_gnn'].pin_memory().to(gpu_id, non_blocking=True)
               data['node_idx_feat'] = batch_data[dd][ff]['node_idx_feat'].pin_memory().to(gpu_id, non_blocking=True)
@@ -275,13 +311,24 @@ class GranRunner(object):
               batch_fwd.append((data,))
 
           if batch_fwd:
-            if self.config.dataset.has_node_feat:
+            if self.config.dataset.has_sub_nodes:
+              train_adj_loss, train_embed_loss, train_subnode_loss = model(*batch_fwd)
+              train_embed_loss = 5 * train_embed_loss # artificially boosting the loss to see what happens
+              train_loss = (train_adj_loss + train_embed_loss + train_subnode_loss).mean()
+              train_loss = train_loss.to(torch.float32)
+              avg_train_loss += train_loss 
+              avg_train_adj_loss += train_adj_loss.mean()
+              avg_train_embed_loss += train_embed_loss.mean()
+              avg_train_subnode_loss += train_subnode_loss.mean()
+
+            elif self.config.dataset.has_node_feat:
               train_adj_loss , train_embed_loss = model(*batch_fwd)
-              # train_embed_loss = 5 * train_embed_loss # artificially boosting the loss to see what happens
+              train_embed_loss = 5 * train_embed_loss # artificially boosting the loss to see what happens
               train_loss = (train_adj_loss + train_embed_loss).mean()
               avg_train_loss += train_loss 
               avg_train_adj_loss += train_adj_loss.mean()
               avg_train_embed_loss += train_embed_loss.mean()
+
             else:
               train_loss = model(*batch_fwd).mean()              
               avg_train_loss += train_loss              
@@ -292,6 +339,10 @@ class GranRunner(object):
         # clip_grad_norm_(model.parameters(), 5.0e-0)
         optimizer.step()
         avg_train_loss /= float(self.dataset_conf.num_fwd_pass)
+        if self.config.dataset.has_sub_nodes:
+          avg_train_subnode_loss /= float(self.dataset_conf.num_fwd_pass)
+          train_subnode_loss = float(avg_train_subnode_loss.data.cpu().numpy())
+
         if self.config.dataset.has_node_feat:
           avg_train_adj_loss /= float(self.dataset_conf.num_fwd_pass)
           avg_train_embed_loss /= float(self.dataset_conf.num_fwd_pass)
@@ -304,11 +355,19 @@ class GranRunner(object):
         self.writer.add_scalar('train_loss', train_loss, iter_count)
         results['train_loss'] += [train_loss]
         results['train_step'] += [iter_count]
+        if self.config.dataset.has_sub_nodes:
+          results['train_subnode_loss'] += [train_subnode_loss]
+          self.writer.add_scalar('train_subnode_loss', train_subnode_loss, iter_count)
         if self.config.dataset.has_node_feat:
           results['train_adj_loss'] += [train_adj_loss]
           results['train_embed_loss'] += [train_embed_loss]
+          self.writer.add_scalar('train_adj_loss', train_adj_loss, iter_count)
+          self.writer.add_scalar('train_embed_loss', train_embed_loss, iter_count)
 
         if iter_count % self.train_conf.display_iter == 0 or iter_count == 1:
+          if self.config.dataset.has_sub_nodes:
+            logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}, train_adj_loss = {}, train_embed_loss = {}, train_subnode_loss = {}".format(
+              epoch + 1, iter_count, train_loss, train_adj_loss, train_embed_loss, train_subnode_loss))
           if self.config.dataset.has_node_feat:
             logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}, train_adj_loss = {}, train_embed_loss = {}".format(
               epoch + 1, iter_count, train_loss, train_adj_loss, train_embed_loss))
@@ -354,6 +413,8 @@ class GranRunner(object):
       ### Generate Graphs
       A_pred = []
       num_nodes_pred = []
+      if self.config.dataset.has_sub_nodes:
+        subnode_pred = []
       if self.config.dataset.has_node_feat:
         node_embed_pred = []
       if self.config.test.animated_vis:
@@ -368,7 +429,9 @@ class GranRunner(object):
           input_dict['is_sampling']=True
           input_dict['batch_size']=self.test_conf.batch_size
           input_dict['num_nodes_pmf']=self.num_nodes_pmf_train
-          if self.config.dataset.has_node_feat and self.config.test.animated_vis:
+          if self.config.dataset.has_sub_nodes:
+            A_tmp, node_embed_tmp, subnode_tmp = model(input_dict)
+          elif self.config.dataset.has_node_feat and self.config.test.animated_vis:
             A_tmp, node_embed_tmp, theta_tmp = model(input_dict)
           elif self.config.test.animated_vis:
             A_tmp, theta_tmp = model(input_dict)
@@ -379,6 +442,8 @@ class GranRunner(object):
           gen_run_time += [time.time() - start_time]
           A_pred += [aa.data.cpu().numpy() for aa in A_tmp]
           num_nodes_pred += [aa.shape[0] for aa in A_tmp]
+          if self.config.dataset.has_sub_nodes:
+            subnode_pred += [aa.data.cpu().numpy() for aa in subnode_tmp]
           if self.config.dataset.has_node_feat:
             node_embed_pred += [aa.data.cpu().numpy() for aa in node_embed_tmp]
           if self.config.test.animated_vis:
@@ -387,7 +452,11 @@ class GranRunner(object):
       logger.info('Average test time per mini-batch = {}'.format(
           np.mean(gen_run_time)))
       
-      if self.config.dataset.has_node_feat:
+      if self.config.dataset.has_sub_nodes:
+        graphs_gen = [get_graph_subnodes(A_pred[ii], node_embed_pred[ii], subnode_pred[ii]) for ii in range(len(A_pred))]
+        graph_gen_no_embed = [get_graph(aa) for aa in A_pred]
+
+      elif self.config.dataset.has_node_feat:
         graphs_gen = [get_graph_embed(A_pred[ii], node_embed_pred[ii]) for ii in range(len(A_pred))]
         graph_gen_no_embed = [get_graph(aa) for aa in A_pred]
 
@@ -418,6 +487,9 @@ class GranRunner(object):
           vis_graphs += [CGs[0]]
 
       if self.is_single_plot:
+        if self.config.dataset.has_sub_nodes:
+          draw_graph_subnode_list(graphs_pred_vis, num_row, num_col, fname="test_graphs_subnodes_1")
+
         if self.config.dataset.has_node_feat:
           if self.better_vis:
             draw_graph_list_embed(vis_graphs, num_row, num_col, fname=save_name)
@@ -425,8 +497,8 @@ class GranRunner(object):
             draw_graph_nodes_list(vis_graphs, num_row, num_col, fname="test_nodes")
           else:
             if self.config.test.animated_vis:
-              draw_animated_plot(graphs_pred_vis, theta_pred, num_graphs=1, 
-                                 x_lim=(-1,4), y_lim=(-1,4))
+              draw_animated_plot(graphs_pred_vis, theta_pred, num_graphs=2, 
+                                 x_lim=(-1,11), y_lim=(-1,11))
             draw_graph_list_embed(graphs_pred_vis, num_row, num_col, fname="test_graphs_1")
             draw_graph_list(graph_gen_no_embed, num_row, num_col, fname="test_no_embed", layout='spring')
             draw_graph_nodes_list(graphs_pred_vis, num_row, num_col, fname="test_nodes_1")

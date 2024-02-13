@@ -19,8 +19,15 @@ def main():
   torch.manual_seed(config.seed)
   torch.cuda.manual_seed_all(config.seed)
   config.use_gpu = config.use_gpu and torch.cuda.is_available()
+
+  ### Setting some new flags here to work with older config files
   if not hasattr(config.dataset, "has_node_feat"):
     config.dataset.has_node_feat = False
+  if not hasattr(config.dataset, "has_sub_nodes"):
+    config.dataset.has_sub_nodes = False
+  if config.dataset.has_sub_nodes:
+    config.dataset.has_node_feat = True
+
 
   # log info
   log_file = os.path.join(config.save_dir, "log_exp_{}.txt".format(config.run_id))

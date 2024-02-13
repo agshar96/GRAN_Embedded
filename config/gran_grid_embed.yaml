@@ -9,26 +9,27 @@ gpus: [0]
 seed: 1234
 dataset:
   loader_name: GRANData
-  name: grid_small
+  name: grid_embed
   data_path: data/
   node_order: DFS # k_core/BFS/degree_decent
   train_ratio: 0.8
   dev_ratio: 0.2
-  num_subgraph_batch: 10 # number of subgraphs per mini-batch
+  num_subgraph_batch: 10 #10 # number of subgraphs per mini-batch
   num_fwd_pass: 1
-  has_node_feat: false
+  has_node_feat: true
   is_save_split: false
   is_sample_subgraph: true # set to true if you want to sample subgraphs
   is_overwrite_precompute: true
 model:
   name: GRANMixtureBernoulli
-  num_mix_component: 120
+  num_mix_component: 10
   is_sym: true
   block_size: 1
   sample_stride: 1
-  max_num_nodes: 100
+  max_num_nodes: 25
   hidden_dim: 128
   embedding_dim: 128
+  node_embedding_dim: 2
   num_GNN_layers: 7
   num_GNN_prop: 1
   num_canonical_order: 1
@@ -37,32 +38,35 @@ model:
   edge_weight: 1.0e+0
 train:
   optimizer: Adam
-  lr_decay: 0.3
-  lr_decay_epoch: [30, 90, 270, 360] # no decay
-  num_workers: 1
+  lr_decay: 0.5
+  lr_decay_epoch: [30, 90, 150, 250, 300, 600, 800]
+  num_workers: 4
   max_epoch: 3000
   batch_size: 1
   display_iter: 10
-  snapshot_epoch: 50
+  snapshot_epoch: 200
   valid_epoch: 50
-  lr: 5.0e-3
+  lr: 1.0e-4
   wd: 0.0e-4
   momentum: 0.9
   shuffle: true
   is_resume: false
-  resume_epoch: 5000
-  resume_dir: # exp/GRAN/your_exp_folder
-  resume_model: model_snapshot_0005000.pth
+  resume_epoch: 160
+  resume_dir: exp/GRAN/GRANMixtureBernoulli_grid_embed_2023-Dec-25-16-29-03_735116
+  resume_model: model_snapshot_0000160.pth
 test:
-  batch_size: 1
-  num_workers: 0
-  num_test_gen: 1 # number of generated samples
+  batch_size: 2
+  num_workers: 1
+  num_test_gen: 2 # number of generated samples
   is_vis: true
   is_single_plot: true # visualize `num_vis` samples in a single image
   is_test_ER: false # test Erdos-Renyi baseline
-  num_vis: 1
-  vis_num_row: 1 # visualize `num_vis` samples in `vis_num_row` rows
-  better_vis: true
+  num_vis: 2
+  vis_num_row: 2 # visualize `num_vis` samples in `vis_num_row` rows
+  better_vis: true ## This also controls if we want to visulize largest connected component
   animated_vis: true ## If this is true better_vis is set to false, to ease the code
-  test_model_dir: exp/GRAN/GRANMixtureBernoulli_grid_small_2024-Jan-05-13-58-44_945117/
-  test_model_name: model_snapshot_0000150.pth
+  num_animations: 2 ## Number of graphs to save animation for
+  color_animation: true ## Set it to use color map instead of transperancy
+  shuffle: true
+  test_model_dir: exp/GRAN/GRANMixtureBernoulli_grid_embed_2024-Jan-18-16-56-13_1164283/
+  test_model_name: model_snapshot_0003000.pth

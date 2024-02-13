@@ -142,6 +142,46 @@ def draw_graph_list_embed(G_list, row, col, fname= 'test_graph_plots'):
     plt.savefig(fname+'.png', dpi=600)
     plt.close()
 
+def draw_graph_subnode_list(G_list, row, col, fname= 'test_graph_subnode'):
+
+    for i,G in enumerate(G_list):
+        plt.subplot(row,col,i+1)
+        plt.subplots_adjust(left=0, bottom=0, right=1, top=1,
+                        wspace=0, hspace=0)
+        
+        node_embed_output = list(G.nodes(data=True))
+        node_embed_output = np.array([item[1]['features'] for item in node_embed_output])
+        adj = np.asarray(nx.to_numpy_array(G))
+        edges = G.edges()
+        edge_subnode_dict = {}
+        for u,v in edges:
+           edge_subnode_dict[(u,v)] = G[u][v]['subnodes']
+
+        #Plot edges
+        x =[]
+        y =[]
+        x_sub = []
+        y_sub = []
+        for i in range(node_embed_output.shape[0]):
+            coord1 = node_embed_output[i]
+            neighbors = np.where(np.isclose(adj[i], 1))[0]
+            for node in neighbors:
+                if node > i:
+                   subnode = edge_subnode_dict[(i, node)]
+                   x_sub.extend(subnode[:,0].tolist())
+                   y_sub.extend(subnode[:,1].tolist())
+                coord2 = node_embed_output[node]
+                x.extend([coord1[0], coord2[0], None])
+                y.extend([coord1[1], coord2[1], None])
+        plt.plot(x,y, '-k')
+        plt.scatter(x_sub, y_sub, s=5)
+        plt.scatter(x,y, s=10, color='r')
+        
+        
+    
+    plt.savefig(fname+'.png', dpi=600)
+    plt.close()
+
 ## This function only draws the node location without any edges
 def draw_graph_nodes_list(G_list, row, col, fname= 'test_node_plots'):
 
@@ -189,6 +229,8 @@ def draw_animated_plot(graph_list, theta_list, num_graphs, x_lim=(-1,4), y_lim =
       fig, ax = plt.subplots()
       sc = ax.scatter([], [])
       lines = LineCollection([])
+
+      ###
       ax.add_collection(lines)
       ax.set_xlim(x_lim)
       ax.set_ylim(y_lim)

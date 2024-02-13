@@ -185,7 +185,8 @@ def graph_load_from_torchfile(data_dir, file_name, name='argoverse', node_attrib
 
   return graphs
 
-def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, normalized = False):
+def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, normalized = False,
+                           noisy = False, noisy_std = 0.5):
     '''
     This function creates a grid with x_nodes in x-direction and y_nodes
     in y-direction. Each node has a 2D coordinate associated with it.
@@ -195,6 +196,9 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
     y_nodes: Number of nodes in y-direction
     side_x: Sidelength in x-direction
     side_y: Sidelength in y-direction
+    normalized: are nodes normalized or not
+    noisy: Add a gaussian noise to each node position
+    noisy_std: Standard deviation of noise, used only when noisy=True
     '''
 
     if side_x is None and side_y is not None:
@@ -222,6 +226,8 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
     for i in range(x_nodes):
         for j in range(y_nodes):
             coords = torch.tensor([float(i*side_x), float(j*side_y)]) - mean_tensor
+            if noisy:
+              coords += torch.randn(coords.size()) * noisy_std
             coords = coords / std_tensor
             G.add_node(num_node, features = coords)
 
@@ -234,6 +240,55 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
             num_node += 1
 
     return G
+
+def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, subdivisions=10):
+  '''
+    This function creates a grid with 'x_nodes' in x-direction and 'y_nodes'
+    in y-direction. Each node has a 2D coordinate associated with it.
+    The side-x and side-y specify side length in x and direction respectively.
+    Each edge is further subdivided into 'subdivisions' amount of sub-nodes
+
+    x_nodes: Number of nodes in x-direction
+    y_nodes: Number of nodes in y-direction
+    side_x: Sidelength in x-direction
+    side_y: Sidelength in y-direction
+    subdivisions: Number of subdivisions of each edge 
+  '''
+
+  if side_x is None and side_y is not None:
+        side_x = side_y
+  elif side_x is not None and side_y is None:
+      side_y = side_x
+  elif side_x is None and side_y is None:
+      side_x = side_y = 1
+  
+  G = nx.Graph()
+  num_node = 0
+  node_dict = {} # Hold all node coodinates
+  for i in range(x_nodes):
+      for j in range(y_nodes):
+          coords = torch.tensor([float(i*side_x), float(j*side_y)])
+          G.add_node(num_node, features = coords)
+          node_dict[num_node] = coords
+          t = torch.linspace(0, 1, subdivisions).reshape(-1, 1) #This will help us sample subnodes
+          if j > 0:
+              node_start = coords
+              node_end = node_dict[num_node-1]
+              subnodes = node_start + t*(node_end - node_start)
+              G.add_edge(num_node, num_node-1)
+              G.add_edge(num_node -1, num_node, subnodes = subnodes.flip(dims=(0,)))
+
+          if i > 0:
+              node_start = coords
+              node_end = node_dict[num_node - y_nodes]
+              subnodes = node_start + t*(node_end - node_start)
+
+              G.add_edge(num_node, num_node - y_nodes)
+              G.add_edge(num_node - y_nodes, num_node, subnodes = subnodes.flip(dims=(0,)))
+          num_node += 1
+  
+  return G
+    
 
 
 def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
@@ -296,9 +351,19 @@ def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
                                        node_attributes = True,
                                        graph_labels=True)
   elif graph_type == 'grid_embed':
+    ## Try to add noise setting through config, currently hard coded
     graphs = []
-    for _ in range(50):
-        graphs.append(create_grid_with_embed(3,3))
+    for _ in range(35):
+        graphs.append(create_grid_with_embed(10,10))
+    for _ in range(15):
+        graphs.append(create_grid_with_embed(10,10, noisy=True, noisy_std=0.1))
+  
+  elif graph_type == 'subnode':
+    ## Try to add noise setting through config, currently hard coded
+    graphs = []
+    for _ in range(10):
+        graphs.append(create_subnode_with_embed(3,3))
+
 
   num_nodes = [gg.number_of_nodes() for gg in graphs]
   num_edges = [gg.number_of_edges() for gg in graphs]
