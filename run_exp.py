@@ -20,13 +20,21 @@ def main():
   torch.cuda.manual_seed_all(config.seed)
   config.use_gpu = config.use_gpu and torch.cuda.is_available()
 
+  ### TO-DO: Move to a separate function
   ### Setting some new flags here to work with older config files
   if not hasattr(config.dataset, "has_node_feat"):
     config.dataset.has_node_feat = False
   if not hasattr(config.dataset, "has_sub_nodes"):
     config.dataset.has_sub_nodes = False
+  if not hasattr(config.dataset, "has_start_node"):
+    config.dataset.has_start_node = False
+    
   if config.dataset.has_sub_nodes:
     config.dataset.has_node_feat = True
+    config.dataset.has_start_node = False ## Subnodes don't have start node logic implemented
+
+  if config.dataset.has_start_node:
+    config.model.max_num_nodes += 1
 
 
   # log info

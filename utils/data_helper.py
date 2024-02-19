@@ -11,6 +11,7 @@ from scipy import sparse as sp
 import networkx as nx
 import torch.nn.functional as F
 from torch_geometric.data import DataLoader
+from HDMapGen.nuplanprocess import get_data_nuplan
 
 __all__ = [
     'save_graph_list', 'load_graph_list', 'graph_load_batch',
@@ -185,8 +186,8 @@ def graph_load_from_torchfile(data_dir, file_name, name='argoverse', node_attrib
 
   return graphs
 
-def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, normalized = False,
-                           noisy = False, noisy_std = 0.5):
+def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, normalized = True,
+                           noisy = False, noisy_std = 0.5, has_start_node = False):
     '''
     This function creates a grid with x_nodes in x-direction and y_nodes
     in y-direction. Each node has a 2D coordinate associated with it.
@@ -199,6 +200,7 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
     normalized: are nodes normalized or not
     noisy: Add a gaussian noise to each node position
     noisy_std: Standard deviation of noise, used only when noisy=True
+    has_start_node: We add a start node which is connected to all nodes, this is our <START> token
     '''
 
     if side_x is None and side_y is not None:
@@ -216,6 +218,8 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
       for i in range(x_nodes):
         for j in range(y_nodes):
             coords = torch.tensor([float(i*side_x), float(j*side_y)])
+            # if noisy:
+            #   coords += torch.randn(coords.size()) * noisy_std
             coord_list.append(coords)
       coord_list = torch.stack(coord_list)
       mean_tensor = torch.mean(coord_list, dim=0)
@@ -239,9 +243,18 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
                 G.add_edge(num_node - y_nodes, num_node)
             num_node += 1
 
+    ## The node is connected to all nodes, in DFS since we select node by degree, this should
+    ## by default be the start node then!!
+    if has_start_node:
+       G.add_node(num_node, features = torch.tensor([-1.0,-1.0], dtype=torch.float32))
+       prev_node = num_node - 1
+       while prev_node >= 0:
+          G.add_edge(num_node, prev_node)
+          G.add_edge(prev_node, num_node)
+          prev_node -= 1
     return G
 
-def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, subdivisions=10):
+def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, subdivisions=10, noisy = False, noisy_std = 0.1):
   '''
     This function creates a grid with 'x_nodes' in x-direction and 'y_nodes'
     in y-direction. Each node has a 2D coordinate associated with it.
@@ -268,7 +281,11 @@ def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, su
   for i in range(x_nodes):
       for j in range(y_nodes):
           coords = torch.tensor([float(i*side_x), float(j*side_y)])
-          G.add_node(num_node, features = coords)
+          coords_noisy = coords.detach().clone()
+          if noisy:
+              coords_noisy += torch.randn(coords.size()) * noisy_std
+
+          G.add_node(num_node, features = coords_noisy)
           node_dict[num_node] = coords
           t = torch.linspace(0, 1, subdivisions).reshape(-1, 1) #This will help us sample subnodes
           if j > 0:
@@ -289,9 +306,43 @@ def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, su
   
   return G
     
+def convert_nuplan_to_networkx(normalized = True):
+  '''
+  This function reads nuplan in the format that works for the model.
+  normalized: Bool, we set this option to normalize the nodes, by default it will be true
+  '''
+  graphs = []
+  maps = get_data_nuplan()
 
+  for map in maps:
+    G = nx.Graph()
 
-def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
+    if normalized:
+      mean_node = np.mean(map.nodes, axis=0)
+      std_dev = np.std(map.nodes, axis=0)
+
+    num_node = 0
+    for node in map.nodes:
+      if normalized:
+         node = (node - mean_node) / std_dev
+      G.add_node(num_node, features = torch.from_numpy(node).to(torch.float32))
+      num_node += 1
+    
+    for edge_num in range(map.connections.shape[0]):
+       start_node, end_node = map.connections[edge_num]
+       subnodes = torch.from_numpy(map.subnodes[edge_num])
+       if normalized:
+          subnodes = (subnodes - torch.from_numpy(mean_node)) / torch.from_numpy(std_dev)
+
+       G.add_edge(start_node, end_node, subnodes = subnodes)
+       G.add_edge(end_node, start_node)
+    
+    graphs.append(G)
+  
+  return graphs
+  
+
+def create_graphs(graph_type, data_dir='data',is_noisy = False ,noise_std=1.0,has_start_node = False,seed=1234):
   npr = np.random.RandomState(seed)
   ### load datasets
   graphs = []
@@ -354,15 +405,26 @@ def create_graphs(graph_type, data_dir='data', noise=10.0, seed=1234):
     ## Try to add noise setting through config, currently hard coded
     graphs = []
     for _ in range(35):
-        graphs.append(create_grid_with_embed(10,10))
-    for _ in range(15):
-        graphs.append(create_grid_with_embed(10,10, noisy=True, noisy_std=0.1))
+        graphs.append(create_grid_with_embed(4,4, has_start_node=has_start_node, normalized=False))
+        graphs.append(create_grid_with_embed(3,3, has_start_node=has_start_node, normalized=False))
+    # for _ in range(15):
+    #     graphs.append(create_grid_with_embed(10,10, noisy=is_noisy, noisy_std=noise_std))
   
   elif graph_type == 'subnode':
     ## Try to add noise setting through config, currently hard coded
     graphs = []
-    for _ in range(10):
-        graphs.append(create_subnode_with_embed(3,3))
+    for _ in range(35):
+        graphs.append(create_subnode_with_embed(3,3, subdivisions=20))
+    # for _ in range(15):
+    #     graphs.append(create_subnode_with_embed(10,10,noisy=is_noisy, noisy_std=noise_std))
+  
+  elif graph_type == 'nuplan':
+    output = convert_nuplan_to_networkx()
+    # graphs = output
+    graphs = []
+    for i in range(35):
+       graphs.append(output[0])
+
 
 
   num_nodes = [gg.number_of_nodes() for gg in graphs]

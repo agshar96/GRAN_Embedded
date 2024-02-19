@@ -332,7 +332,8 @@ class GRANData(object):
       for ii in range(len(adj_list)):
         # loop over different orderings
         adj_full = adj_list[ii]
-        subnode_dict = subnode_list[ii]
+        if self.config.dataset.has_sub_nodes:
+          subnode_dict = subnode_list[ii]
         if self.config.dataset.has_node_feat:
           node_embed_output = node_embed_list[ii][:, 1]
           node_embed = np.array([item['features'].numpy() for item in node_embed_output])
@@ -518,7 +519,7 @@ class GRANData(object):
                     np.pad(
                         bb['node_embed'], ((0, 0), (0, pad_size[ii]), (0, 0)),
                         'constant',
-                        constant_values=0.0) for ii, bb in enumerate(batch_pass)
+                        constant_values=-1.0) for ii, bb in enumerate(batch_pass)
                 ],
                 axis=0)).float() # B X N X 2
 

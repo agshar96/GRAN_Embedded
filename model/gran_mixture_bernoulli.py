@@ -307,6 +307,11 @@ class GRANMixtureBernoulli(nn.Module):
       node_embed_out = node_state[node_embed_idx_gnn]
       output_embed = self.output_embed(node_embed_out)
     if self.config.dataset.has_sub_nodes:
+      # start_node_embed = self.output_embed(node_state[node_idx_gnn[:, 0], :])
+      # end_node_embed = self.output_embed(node_state[node_idx_gnn[:, 1], :])
+      # ## TEST
+      # decoder_input = torch.cat( (start_node_embed, end_node_embed, node_state[node_idx_gnn[:, 0], :], 
+      #                             node_state[node_idx_gnn[:, 1],:]), dim=1)
       decoder_input = torch.cat( (subnode_coords, node_state[node_idx_gnn[:, 0], :], 
                                   node_state[node_idx_gnn[:, 1],:]), dim=1)
       output_subnodes = self.output_subnode_decoder(decoder_input)
@@ -479,6 +484,9 @@ class GRANMixtureBernoulli(nn.Module):
         if self.is_sym:
           A = torch.tril(A, diagonal=-1)
           A = A + A.transpose(1, 2)
+        
+        if self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
+          return A, node_embed, subnode_coords, theta_ret
         
         if self.config.dataset.has_sub_nodes:
           return A, node_embed, subnode_coords 
@@ -789,6 +797,8 @@ class GRANMixtureBernoulli(nn.Module):
         A, node_embed_out = self._completion_sampling(batch_size, A_pad = A_pad
                                                       , node_embed_pad=node_embed_pad,
                                                       starting_idx=starting_idx)
+      elif self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
+        A, node_embed_out, subnode_coords_out, theta_ret = self._sampling(batch_size)
       elif self.config.dataset.has_sub_nodes:
         A, node_embed_out, subnode_coords_out = self._sampling(batch_size)
       elif self.config.test.animated_vis and self.config.dataset.has_node_feat:
@@ -822,6 +832,8 @@ class GRANMixtureBernoulli(nn.Module):
           theta_ret[ii, :num_nodes[ii], :num_nodes[ii]] for ii in range(batch_size)
          ]
       
+      if self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
+        return A_list, node_embed_list, subnode_coords_list, theta_list
       if self.config.dataset.has_sub_nodes:
         return A_list, node_embed_list, subnode_coords_list
       if self.config.dataset.has_node_feat and self.config.test.animated_vis:

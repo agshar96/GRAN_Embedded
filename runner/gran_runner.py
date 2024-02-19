@@ -25,7 +25,7 @@ from utils.train_helper import data_to_gpu, snapshot, load_model, EarlyStopper
 from utils.data_helper import *
 from utils.eval_helper import *
 from utils.dist_helper import compute_mmd, gaussian_emd, gaussian, emd, gaussian_tv
-from utils.vis_helper import draw_graph_list, draw_graph_list_separate, draw_graph_list_embed, draw_graph_nodes_list, draw_animated_plot, draw_graph_subnode_list
+from utils.vis_helper import draw_graph_list, draw_graph_list_separate, draw_graph_list_embed, draw_graph_nodes_list, draw_animated_plot, draw_graph_subnode_list, draw_animated_subnodes
 from utils.data_parallel import DataParallel
 
 
@@ -155,7 +155,13 @@ class GranRunner(object):
       self.config.save_dir = self.train_conf.resume_dir
 
     ### load graphs
-    self.graphs = create_graphs(config.dataset.name, data_dir=config.dataset.data_path)
+    if not hasattr(config.dataset, "is_noisy"):
+      config.dataset.is_noisy = False
+      config.dataset.noise_std = 1.0
+    self.graphs = create_graphs(config.dataset.name, data_dir=config.dataset.data_path,
+                                is_noisy= config.dataset.is_noisy, 
+                                noise_std=config.dataset.noise_std, 
+                                has_start_node = config.dataset.has_start_node)
     
     self.train_ratio = config.dataset.train_ratio
     self.dev_ratio = config.dataset.dev_ratio
@@ -368,7 +374,7 @@ class GranRunner(object):
           if self.config.dataset.has_sub_nodes:
             logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}, train_adj_loss = {}, train_embed_loss = {}, train_subnode_loss = {}".format(
               epoch + 1, iter_count, train_loss, train_adj_loss, train_embed_loss, train_subnode_loss))
-          if self.config.dataset.has_node_feat:
+          elif self.config.dataset.has_node_feat:
             logger.info("NLL Loss @ epoch {:04d} iteration {:08d} = {}, train_adj_loss = {}, train_embed_loss = {}".format(
               epoch + 1, iter_count, train_loss, train_adj_loss, train_embed_loss))
           else:
@@ -429,7 +435,9 @@ class GranRunner(object):
           input_dict['is_sampling']=True
           input_dict['batch_size']=self.test_conf.batch_size
           input_dict['num_nodes_pmf']=self.num_nodes_pmf_train
-          if self.config.dataset.has_sub_nodes:
+          if self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
+            A_tmp, node_embed_tmp, subnode_tmp, theta_tmp = model(input_dict)
+          elif self.config.dataset.has_sub_nodes:
             A_tmp, node_embed_tmp, subnode_tmp = model(input_dict)
           elif self.config.dataset.has_node_feat and self.config.test.animated_vis:
             A_tmp, node_embed_tmp, theta_tmp = model(input_dict)
@@ -441,13 +449,27 @@ class GranRunner(object):
             A_tmp = model(input_dict)
           gen_run_time += [time.time() - start_time]
           A_pred += [aa.data.cpu().numpy() for aa in A_tmp]
+          if self.config.dataset.has_start_node:
+            for i in range(len(A_pred)):
+              A_pred[i] = A_pred[i][1:,1:]
+
           num_nodes_pred += [aa.shape[0] for aa in A_tmp]
+
           if self.config.dataset.has_sub_nodes:
+            ## Start node not implemented till now
             subnode_pred += [aa.data.cpu().numpy() for aa in subnode_tmp]
+
           if self.config.dataset.has_node_feat:
             node_embed_pred += [aa.data.cpu().numpy() for aa in node_embed_tmp]
+            if self.config.dataset.has_start_node:
+              for i in range(len(node_embed_pred)):
+                node_embed_pred[i] = node_embed_pred[i][1:]
+
           if self.config.test.animated_vis:
             theta_pred += [aa.data.cpu().numpy() for aa in theta_tmp]
+            if self.config.dataset.has_start_node:
+              for i in range(len(theta_pred)):
+                theta_pred[i] = theta_pred[i][1:,1:]
 
       logger.info('Average test time per mini-batch = {}'.format(
           np.mean(gen_run_time)))
@@ -457,7 +479,7 @@ class GranRunner(object):
         graph_gen_no_embed = [get_graph(aa) for aa in A_pred]
 
       elif self.config.dataset.has_node_feat:
-        graphs_gen = [get_graph_embed(A_pred[ii], node_embed_pred[ii]) for ii in range(len(A_pred))]
+        graphs_gen = [get_graph_embed(A_pred[ii], node_embed_pred[ii], has_start = self.config.dataset.has_start_node) for ii in range(len(A_pred))]
         graph_gen_no_embed = [get_graph(aa) for aa in A_pred]
 
       else:
@@ -489,6 +511,10 @@ class GranRunner(object):
       if self.is_single_plot:
         if self.config.dataset.has_sub_nodes:
           draw_graph_subnode_list(graphs_pred_vis, num_row, num_col, fname="test_graphs_subnodes_1")
+          if self.config.test.animated_vis:
+            draw_animated_subnodes(graphs_pred_vis, theta_pred, num_graphs=self.config.test.num_animations, 
+                                  fname = 'graph_subnode_animation',
+                                 x_lim=(-1,6), y_lim=(-1,6))
 
         if self.config.dataset.has_node_feat:
           if self.better_vis:
@@ -497,8 +523,8 @@ class GranRunner(object):
             draw_graph_nodes_list(vis_graphs, num_row, num_col, fname="test_nodes")
           else:
             if self.config.test.animated_vis:
-              draw_animated_plot(graphs_pred_vis, theta_pred, num_graphs=2, 
-                                 x_lim=(-1,11), y_lim=(-1,11))
+              draw_animated_plot(graphs_pred_vis, theta_pred, num_graphs=self.config.test.num_animations, fname = 'graph_embed_animation',
+                                 x_lim=(-2,2), y_lim=(-2,2))
             draw_graph_list_embed(graphs_pred_vis, num_row, num_col, fname="test_graphs_1")
             draw_graph_list(graph_gen_no_embed, num_row, num_col, fname="test_no_embed", layout='spring')
             draw_graph_nodes_list(graphs_pred_vis, num_row, num_col, fname="test_nodes_1")

@@ -9,25 +9,26 @@ gpus: [0]
 seed: 1234
 dataset:
   loader_name: GRANData
-  name: grid_embed
+  name: nuplan
   data_path: data/
   node_order: DFS # k_core/BFS/degree_decent
   train_ratio: 0.8
   dev_ratio: 0.2
-  num_subgraph_batch: 8 #10 # number of subgraphs per mini-batch
+  num_subgraph_batch: 45 #10 # number of subgraphs per mini-batch
   num_fwd_pass: 1
   has_node_feat: true
+  has_sub_nodes: true # It sets has_node_feat to true.
+  num_sub_nodes: 20 # To give the number of subnodes
   is_save_split: false
   is_sample_subgraph: true # set to true if you want to sample subgraphs
   is_overwrite_precompute: true
-  has_start_node: true # This adds a dedicated start node which is connected to all nodes
 model:
   name: GRANMixtureBernoulli
   num_mix_component: 10
   is_sym: true
   block_size: 1
   sample_stride: 1
-  max_num_nodes: 16
+  max_num_nodes: 46
   hidden_dim: 128
   embedding_dim: 128
   node_embedding_dim: 2
@@ -40,19 +41,19 @@ model:
 train:
   optimizer: Adam
   lr_decay: 0.5
-  lr_decay_epoch: [70, 300, 600, 900] #[30, 90, 150, 250, 300, 600, 800]
-  num_workers: 4
+  lr_decay_epoch: [30, 90, 150, 250, 350, 500, 700, 1000]
+  num_workers: 1
   max_epoch: 3000
   batch_size: 1
   display_iter: 10
   snapshot_epoch: 100
-  valid_epoch: 50
-  lr: 1.0e-4
+  valid_epoch: 150
+  lr: 5.0e-4
   wd: 0.0e-4
   momentum: 0.9
   shuffle: true
   is_resume: false
-  resume_epoch: 160
+  resume_epoch: 5000
   resume_dir: exp/GRAN/GRANMixtureBernoulli_grid_embed_2023-Dec-25-16-29-03_735116
   resume_model: model_snapshot_0000160.pth
 test:
@@ -64,10 +65,10 @@ test:
   is_test_ER: false # test Erdos-Renyi baseline
   num_vis: 2
   vis_num_row: 2 # visualize `num_vis` samples in `vis_num_row` rows
-  better_vis: true ## This also controls if we want to visulize largest connected component
+  better_vis: false ## This also controls if we want to visulize largest connected component
   animated_vis: true ## If this is true better_vis is set to false, to ease the code
   num_animations: 2 ## Number of graphs to save animation for
   color_animation: true ## Set it to use color map instead of transperancy
   shuffle: true
-  test_model_dir: exp/GRAN/GRANMixtureBernoulli_grid_embed_2024-Feb-16-16-53-22_1540087/
-  test_model_name: model_snapshot_0000700.pth
+  test_model_dir: exp/GRAN/GRANMixtureBernoulli_nuplan_2024-Feb-17-17-42-31_1602383/
+  test_model_name: model_snapshot_0000300.pth
