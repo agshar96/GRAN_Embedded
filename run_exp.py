@@ -49,7 +49,7 @@ def main():
   print("<" * 80)
 
   # Run the experiment
-  args.test = True #Comment while training
+  # args.test = True #Comment while training
   # args.test_completion = True
   try:
     runner = eval(config.runner)(config)
