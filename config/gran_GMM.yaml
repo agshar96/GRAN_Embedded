@@ -18,7 +18,7 @@ dataset:
   num_fwd_pass: 1
   has_node_feat: true
   has_sub_nodes: true # It sets has_node_feat to true.
-  num_sub_nodes: 10 # To give the number of subnodes
+  num_sub_nodes: 20 # To give the number of subnodes
   is_save_split: false
   is_sample_subgraph: true # set to true if you want to sample subgraphs
   is_overwrite_precompute: true
@@ -26,11 +26,11 @@ dataset:
   noise_std: 0.1
 model:
   name: GRANMixtureBernoulli
-  num_mix_component: 10
+  num_mix_component: 2 ## This is also number of mixture components for GMM loss
   is_sym: true
   block_size: 1
   sample_stride: 1
-  max_num_nodes: 25
+  max_num_nodes: 9
   hidden_dim: 128
   embedding_dim: 128
   node_embedding_dim: 2
@@ -46,7 +46,7 @@ train:
   lr_decay_epoch: [30, 90, 150, 250, 350, 500, 700, 1000]
   num_workers: 1
   max_epoch: 3000
-  batch_size: 1
+  batch_size: 2
   display_iter: 10
   snapshot_epoch: 100
   valid_epoch: 150
@@ -72,5 +72,5 @@ test:
   num_animations: 2 ## Number of graphs to save animation for
   color_animation: true ## Set it to use color map instead of transperancy
   shuffle: true
-  test_model_dir: exp/GRAN/GRANMixtureBernoulli_subnode_2024-Feb-14-19-59-15_828830/
-  test_model_name: model_snapshot_0000300.pth
+  test_model_dir: exp/GRAN/GRANMixtureBernoulli_subnode_2024-Feb-19-20-49-15_1870563/
+  test_model_name: model_snapshot_0001800.pth

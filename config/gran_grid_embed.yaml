@@ -40,7 +40,7 @@ model:
 train:
   optimizer: Adam
   lr_decay: 0.5
-  lr_decay_epoch: [70, 300, 600, 900] #[30, 90, 150, 250, 300, 600, 800]
+  lr_decay_epoch: [30, 90, 150, 300, 600, 800]
   num_workers: 4
   max_epoch: 3000
   batch_size: 1
@@ -69,5 +69,5 @@ test:
   num_animations: 2 ## Number of graphs to save animation for
   color_animation: true ## Set it to use color map instead of transperancy
   shuffle: true
-  test_model_dir: exp/GRAN/GRANMixtureBernoulli_grid_embed_2024-Feb-16-16-53-22_1540087/
-  test_model_name: model_snapshot_0000700.pth
+  test_model_dir: exp/GRAN/GRANMixtureBernoulli_grid_embed_2024-Feb-19-18-28-33_1797413/
+  test_model_name: model_snapshot_0000800.pth

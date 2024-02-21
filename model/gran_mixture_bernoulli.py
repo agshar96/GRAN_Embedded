@@ -188,13 +188,23 @@ class GRANMixtureBernoulli(nn.Module):
         nn.Linear(self.hidden_dim, self.num_mix_component))
     
     if config.dataset.has_node_feat:
-      self.output_embed = nn.Sequential(
+      self.output_gmm_weights = nn.Sequential(
         nn.Linear(self.hidden_dim, self.hidden_dim),
         nn.ReLU(inplace=True),
         nn.Linear(self.hidden_dim, self.hidden_dim),
         nn.ReLU(inplace=True),
-        nn.Linear(self.hidden_dim, self.node_embedding_in_dim)
+        nn.Linear(self.hidden_dim, self.num_mix_component)
       )
+
+      self.output_gmm_mv = nn.Sequential( # mv stands for mean and variance
+        nn.Linear(self.hidden_dim, self.hidden_dim),
+        nn.ReLU(inplace=True),
+        nn.Linear(self.hidden_dim, self.hidden_dim),
+        nn.ReLU(inplace=True),
+        ## Here the first node_embed_in_dim* num_mixture indices are for mean and the last node_embed_in_dim * num_mixture are for variance.
+        ## Following this convention from mixture density networks. We also assume covariance to be diagonal.
+        nn.Linear(self.hidden_dim, 2 * self.node_embedding_in_dim * self.num_mix_component) ## 2 * node_in because we have mean and variance so 2
+      )  
     
     if config.dataset.has_sub_nodes:
       self.output_subnode_decoder = nn.Sequential(
@@ -305,13 +315,10 @@ class GRANMixtureBernoulli(nn.Module):
     log_alpha = self.output_alpha(diff)  # B X (tt+K)K
     if self.config.dataset.has_node_feat:
       node_embed_out = node_state[node_embed_idx_gnn]
-      output_embed = self.output_embed(node_embed_out)
+      embed_log_pis = self.output_gmm_weights(node_embed_out)
+      embed_mv = self.output_gmm_mv(node_embed_out) ## mv stands for mean and variance
+      
     if self.config.dataset.has_sub_nodes:
-      # start_node_embed = self.output_embed(node_state[node_idx_gnn[:, 0], :])
-      # end_node_embed = self.output_embed(node_state[node_idx_gnn[:, 1], :])
-      # ## TEST
-      # decoder_input = torch.cat( (start_node_embed, end_node_embed, node_state[node_idx_gnn[:, 0], :], 
-      #                             node_state[node_idx_gnn[:, 1],:]), dim=1)
       decoder_input = torch.cat( (subnode_coords, node_state[node_idx_gnn[:, 0], :], 
                                   node_state[node_idx_gnn[:, 1],:]), dim=1)
       output_subnodes = self.output_subnode_decoder(decoder_input)
@@ -320,9 +327,9 @@ class GRANMixtureBernoulli(nn.Module):
     log_alpha = log_alpha.view(-1, self.num_mix_component)  # B X CN(N-1)/2 X K
 
     if self.config.dataset.has_sub_nodes:
-      return log_theta, log_alpha, output_embed, output_subnodes
+      return log_theta, log_alpha, embed_log_pis, embed_mv, output_subnodes
     if self.config.dataset.has_node_feat:
-      return log_theta, log_alpha, output_embed
+      return log_theta, log_alpha, embed_log_pis, embed_mv
 
     return log_theta, log_alpha
 
@@ -439,10 +446,21 @@ class GRANMixtureBernoulli(nn.Module):
           log_alpha = self.output_alpha(diff)
 
           if self.config.dataset.has_node_feat:
-            node_embed_out = self.output_embed(
+            # node_embed_out = self.output_embed(
+            #   node_state_out[:,idx_node,:].view(-1, node_state.shape[2])
+            # ).view(B, -1, self.node_embedding_in_dim)
+            output_log_pis = self.output_gmm_weights(
+              node_state_out[:,idx_node,:].view(-1, node_state.shape[2]))
+            output_mv = self.output_gmm_mv(
               node_state_out[:,idx_node,:].view(-1, node_state.shape[2])
-            ).view(B, -1, self.node_embedding_in_dim)
-          
+            )
+            log_pi, mu, sigma = self.rearrange_embed_out(output_log_pis, output_mv)
+            cum_pi = torch.cumsum(torch.exp(log_pi), dim=-1)
+            rvs = torch.rand(len(output_log_pis), 1).to(self.device)
+            rand_pi = torch.searchsorted(cum_pi, rvs)
+            rand_normal = torch.randn_like(mu) * sigma + mu
+            node_embed_out = torch.take_along_dim(rand_normal, indices=rand_pi.unsqueeze(-1), dim=1).squeeze(dim=1)
+            node_embed_out = node_embed_out.reshape(B, -1, self.node_embedding_in_dim)
             node_embed[:, ii:jj, :] = node_embed_out
           
           if self.config.dataset.has_sub_nodes:
@@ -653,6 +671,31 @@ class GRANMixtureBernoulli(nn.Module):
 
         return A
 
+  '''
+  These two functions have been copied from 'mixture density network' code
+  and, they perform GMM loss based on network output
+  '''
+  def rearrange_embed_out(self, embed_log_pis, embed_mv, eps=1e-6):
+    log_pi = torch.log_softmax(embed_log_pis, dim=-1)
+    mu = embed_mv[..., :self.node_embedding_in_dim * self.num_mix_component]
+    sigma = embed_mv[..., self.node_embedding_in_dim * self.num_mix_component:]
+    sigma = torch.exp(sigma + eps)
+
+    mu = mu.reshape(-1, self.num_mix_component, self.node_embedding_in_dim)
+    sigma = sigma.reshape(-1, self.num_mix_component, self.node_embedding_in_dim)
+
+    return log_pi, mu, sigma
+
+  def loss_embed(self, embed_log_pis, embed_mv, label_embed):
+        log_pi, mu, sigma = self.rearrange_embed_out(embed_log_pis, embed_mv)
+        z_score = (label_embed.unsqueeze(1) - mu) / sigma
+        normal_loglik = (
+            -0.5 * torch.einsum("bij,bij->bi", z_score, z_score)
+            -torch.sum(torch.log(sigma), dim=-1)
+        )
+        loglik = torch.logsumexp(log_pi + normal_loglik, dim=-1)
+        return -loglik
+
   def forward(self, input_dict, graph_completion = False):
     """
       B: batch size
@@ -723,7 +766,7 @@ class GRANMixtureBernoulli(nn.Module):
 
       ### compute adj loss
       if self.config.dataset.has_sub_nodes:
-        log_theta, log_alpha, output_embed, output_subnodes  = self._inference(
+        log_theta, log_alpha, embed_log_pis, embed_mv, output_subnodes  = self._inference(
           A_pad=A_pad,
           edges=edges,
           node_idx_gnn=node_idx_gnn,
@@ -734,7 +777,7 @@ class GRANMixtureBernoulli(nn.Module):
           subnode_coords = subnode_coords)
         
       elif self.config.dataset.has_node_feat:
-        log_theta, log_alpha, output_embed  = self._inference(
+        log_theta, log_alpha, embed_log_pis, embed_mv  = self._inference(
           A_pad=A_pad,
           edges=edges,
           node_idx_gnn=node_idx_gnn,
@@ -756,8 +799,8 @@ class GRANMixtureBernoulli(nn.Module):
                                         self.adj_loss_func, subgraph_idx, subgraph_idx_base,
                                         self.num_canonical_order)
       if self.config.dataset.has_node_feat:
-        criterion = nn.MSELoss()
-        embed_loss = criterion(output_embed, label_embed)
+        embed_loss = self.loss_embed(embed_log_pis, embed_mv, label_embed)
+        embed_loss = embed_loss.mean()
         # print("Output embed shape: ", output_embed.shape, " label_embed shape: ", label_embed.shape)
         # print("embed loss: ", embed_loss)
       

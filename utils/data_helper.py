@@ -405,8 +405,8 @@ def create_graphs(graph_type, data_dir='data',is_noisy = False ,noise_std=1.0,ha
     ## Try to add noise setting through config, currently hard coded
     graphs = []
     for _ in range(35):
-        graphs.append(create_grid_with_embed(4,4, has_start_node=has_start_node, normalized=False))
-        graphs.append(create_grid_with_embed(3,3, has_start_node=has_start_node, normalized=False))
+        graphs.append(create_grid_with_embed(4,4, has_start_node=has_start_node, normalized=True))
+        # graphs.append(create_grid_with_embed(3,3, has_start_node=has_start_node, normalized=True))
     # for _ in range(15):
     #     graphs.append(create_grid_with_embed(10,10, noisy=is_noisy, noisy_std=noise_std))
   
@@ -415,6 +415,7 @@ def create_graphs(graph_type, data_dir='data',is_noisy = False ,noise_std=1.0,ha
     graphs = []
     for _ in range(35):
         graphs.append(create_subnode_with_embed(3,3, subdivisions=20))
+        graphs.append(create_subnode_with_embed(2,2, subdivisions=20))
     # for _ in range(15):
     #     graphs.append(create_subnode_with_embed(10,10,noisy=is_noisy, noisy_std=noise_std))
   
@@ -424,6 +425,7 @@ def create_graphs(graph_type, data_dir='data',is_noisy = False ,noise_std=1.0,ha
     graphs = []
     for i in range(35):
        graphs.append(output[0])
+       graphs.append(output[1])
 
 
 

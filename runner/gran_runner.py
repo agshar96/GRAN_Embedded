@@ -65,7 +65,7 @@ def get_graph(adj):
   G = nx.from_numpy_array(adj)
   return G
 
-def get_graph_embed(adj, node_embed):
+def get_graph_embed(adj, node_embed, has_start):
     '''
     get a graph from zero-padded adj
     :param adj:
@@ -319,7 +319,7 @@ class GranRunner(object):
           if batch_fwd:
             if self.config.dataset.has_sub_nodes:
               train_adj_loss, train_embed_loss, train_subnode_loss = model(*batch_fwd)
-              train_embed_loss = 5 * train_embed_loss # artificially boosting the loss to see what happens
+              # train_embed_loss = 100 * train_adj_loss # artificially boosting the loss to see what happens
               train_loss = (train_adj_loss + train_embed_loss + train_subnode_loss).mean()
               train_loss = train_loss.to(torch.float32)
               avg_train_loss += train_loss 
@@ -329,7 +329,7 @@ class GranRunner(object):
 
             elif self.config.dataset.has_node_feat:
               train_adj_loss , train_embed_loss = model(*batch_fwd)
-              train_embed_loss = 5 * train_embed_loss # artificially boosting the loss to see what happens
+              # train_adj_loss = 10 * train_adj_loss # artificially boosting the loss to see what happens
               train_loss = (train_adj_loss + train_embed_loss).mean()
               avg_train_loss += train_loss 
               avg_train_adj_loss += train_adj_loss.mean()
@@ -514,7 +514,7 @@ class GranRunner(object):
           if self.config.test.animated_vis:
             draw_animated_subnodes(graphs_pred_vis, theta_pred, num_graphs=self.config.test.num_animations, 
                                   fname = 'graph_subnode_animation',
-                                 x_lim=(-1,6), y_lim=(-1,6))
+                                 x_lim=(-1,4), y_lim=(-1,4))
 
         if self.config.dataset.has_node_feat:
           if self.better_vis:
@@ -524,7 +524,7 @@ class GranRunner(object):
           else:
             if self.config.test.animated_vis:
               draw_animated_plot(graphs_pred_vis, theta_pred, num_graphs=self.config.test.num_animations, fname = 'graph_embed_animation',
-                                 x_lim=(-2,2), y_lim=(-2,2))
+                                 x_lim=(-1,4), y_lim=(-1,4))
             draw_graph_list_embed(graphs_pred_vis, num_row, num_col, fname="test_graphs_1")
             draw_graph_list(graph_gen_no_embed, num_row, num_col, fname="test_no_embed", layout='spring')
             draw_graph_nodes_list(graphs_pred_vis, num_row, num_col, fname="test_nodes_1")

@@ -24,7 +24,7 @@ dataset:
   is_overwrite_precompute: true
 model:
   name: GRANMixtureBernoulli
-  num_mix_component: 10
+  num_mix_component: 2
   is_sym: true
   block_size: 1
   sample_stride: 1
@@ -41,10 +41,10 @@ model:
 train:
   optimizer: Adam
   lr_decay: 0.5
-  lr_decay_epoch: [30, 90, 150, 250, 350, 500, 700, 1000]
+  lr_decay_epoch: [30, 90, 150, 350, 700, 1000, 1500, 2000]
   num_workers: 1
-  max_epoch: 3000
-  batch_size: 1
+  max_epoch: 5000
+  batch_size: 4
   display_iter: 10
   snapshot_epoch: 100
   valid_epoch: 150
@@ -59,16 +59,16 @@ train:
 test:
   batch_size: 2
   num_workers: 1
-  num_test_gen: 2 # number of generated samples
+  num_test_gen: 4 # number of generated samples
   is_vis: true
   is_single_plot: true # visualize `num_vis` samples in a single image
   is_test_ER: false # test Erdos-Renyi baseline
-  num_vis: 2
+  num_vis: 4
   vis_num_row: 2 # visualize `num_vis` samples in `vis_num_row` rows
   better_vis: false ## This also controls if we want to visulize largest connected component
   animated_vis: true ## If this is true better_vis is set to false, to ease the code
   num_animations: 2 ## Number of graphs to save animation for
   color_animation: true ## Set it to use color map instead of transperancy
   shuffle: true
-  test_model_dir: exp/GRAN/GRANMixtureBernoulli_nuplan_2024-Feb-17-17-42-31_1602383/
-  test_model_name: model_snapshot_0000300.pth
+  test_model_dir: exp/GRAN/GRANMixtureBernoulli_nuplan_2024-Feb-20-17-42-46_1964278/
+  test_model_name: model_snapshot_0004400.pth
