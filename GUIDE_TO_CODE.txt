@@ -1,0 +1,38 @@
+THINGS TO NOT DO:
+1. "--test_completion" in the command line: This feature was once used for debug, and is unstable
+2. "has_start_node = true" in the dataset section of your config: This feature is only tested for no subnode case.
+
+MAIN FILE SUMMARIES:
+1. run_exp.py -- This is the starting point for the code.
+2. runner/gran_runner.py -- Main file for Training, and testing. This file also calls functions to create graphs
+                     and create datasets.
+3. model/gran_mixture_bernoulli.py -- This file consists of the Graph generation model.
+4. dataset/gran_data.py -- This file contains code for dataloader.
+5. utils/data_helper.py -- Main file for reading the dataset. THIS IS THE FILE WHERE YOU MAKE MOST CHANGES.
+
+SOME FILE DETAILS:
+1. dataset/gran_data.py 
+    - In the function, "_get_graph_data" we only use 'DFS' option. Because that's what main paper used.
+    - get_item(), gets a single graph from the dataset, the collate_fn puts together the batch.
+    - To make any changes to dataloader, functions to change are: 
+        - get_item(), collate_fn(), the part after, "for dd, gpu_id in enumerate(self.gpus):" in runner/gran_runner.py
+
+2. model/gran_mixture_bernoulli.py
+    - Class "GNN" does graph message passing and is untouched by any changes
+    - GRANMixtureBernoulli.Inference is called during training, it adds a node which is connected to all previous nodes, then does message passing.
+      'node_idx_feat' variable helps the network select the right nodes to do message passing on across various batches.
+      'node_idx_gnn' this selects all edges between the new node being introduced and previous graphs
+      'node_embed_idx_gnn' selects the vertex for which we need to predict the label
+    - GRANMixtureBernoulli._Sampling is called for generation. In all my tests I kept 'K' as 1. Which means at each step 1 node is added.
+
+MAIN CONFIG OPTIONS:
+1. dataset.name: This detemines which graph will be loaded inside 'utils/data_helper.py'
+2. dataset.num_subgraph_batch: Set it to highest value. If a graph has lesser nodes, code can handle that.
+3. dataset.has_node_feat: If set to true, then your nodes will have coordinates. Else its just adjacency
+4. dataset.has_sub_nodes: If set to true, we have subnodes. If this is true, above option is automatically set to true.
+5. dataset.num_sub_nodes: For nuplan set to 20. (REMEMBER TO SET THIS CORRECTLY, ELSE DATALOADER THROWS ERROR)
+6. dataset.is_sample_subgraph: Always set to true.
+7. dataset.is_overwrite_precompute: Always set to true. (It's easier that way)
+8. dataset.is_noisy: This setting was only used for grid_dataset inside 'utils/data_helper.py'. It adds a little noise to all the node coordinates.
+9. model.max_num_nodes: (REMEMBER TO SET, ELSE IT GIVES INDEXING ERROR IN DATALOADER) set to max number of nodes in your data.
+10. test.better_vis: Set to False. It just deletes unconnected nodes, we don't want that.
