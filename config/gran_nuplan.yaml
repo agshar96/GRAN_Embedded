@@ -22,6 +22,8 @@ dataset:
   is_save_split: false
   is_sample_subgraph: true # set to true if you want to sample subgraphs
   is_overwrite_precompute: true
+  is_noisy: true
+  noise_std: 0.2
 model:
   name: GRANMixtureBernoulli
   num_mix_component: 2
@@ -70,5 +72,5 @@ test:
   num_animations: 2 ## Number of graphs to save animation for
   color_animation: true ## Set it to use color map instead of transperancy
   shuffle: true
-  test_model_dir: exp/GRAN/GRANMixtureBernoulli_nuplan_2024-Feb-20-17-42-46_1964278/
-  test_model_name: model_snapshot_0004400.pth
+  test_model_dir: exp/GRAN/GRANMixtureBernoulli_nuplan_2024-Feb-21-17-41-48_2093553/
+  test_model_name: model_snapshot_0002500.pth

@@ -264,6 +264,14 @@ class GRANMixtureBernoulli(nn.Module):
     A_pad = A_pad.view(B * C * N_max, -1)
     if self.config.dataset.has_node_feat:
       node_embed_pad = node_embed_pad.view(B*C*N_max, -1)
+    
+    if self.config.dataset.is_noisy:
+      noisy_std = self.config.dataset.noise_std
+      if self.config.dataset.has_node_feat:
+        node_embed_pad += (torch.randn(node_embed_pad.size()) * noisy_std).to(self.device)
+      if self.config.dataset.has_sub_nodes:
+        subnode_coords += (torch.randn(subnode_coords.size()) * noisy_std).to(self.device)
+
 
     if self.dimension_reduce:
       if self.config.dataset.has_node_feat:

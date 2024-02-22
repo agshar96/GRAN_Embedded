@@ -33,6 +33,6 @@ MAIN CONFIG OPTIONS:
 5. dataset.num_sub_nodes: For nuplan set to 20. (REMEMBER TO SET THIS CORRECTLY, ELSE DATALOADER THROWS ERROR)
 6. dataset.is_sample_subgraph: Always set to true.
 7. dataset.is_overwrite_precompute: Always set to true. (It's easier that way)
-8. dataset.is_noisy: This setting was only used for grid_dataset inside 'utils/data_helper.py'. It adds a little noise to all the node coordinates.
+8. dataset.is_noisy: Use it to add noise to node coordinates. This doesn't add noise to the labels, so your graph learns to denoise (hoepfully)
 9. model.max_num_nodes: (REMEMBER TO SET, ELSE IT GIVES INDEXING ERROR IN DATALOADER) set to max number of nodes in your data.
 10. test.better_vis: Set to False. It just deletes unconnected nodes, we don't want that.
