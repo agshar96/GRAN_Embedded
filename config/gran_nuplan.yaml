@@ -24,6 +24,7 @@ dataset:
   is_overwrite_precompute: true
   is_noisy: true
   noise_std: 0.2
+  has_stop_node: true
 model:
   name: GRANMixtureBernoulli
   num_mix_component: 2

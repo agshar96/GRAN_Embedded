@@ -1,6 +1,6 @@
 THINGS TO NOT DO:
 1. "--test_completion" in the command line: This feature was once used for debug, and is unstable
-2. "has_start_node = true" in the dataset section of your config: This feature is only tested for no subnode case.
+2. "has_start_node = true" in the dataset section of your config: This feature is only tested for no subnode case.So, if you wish to use it implement it
 
 MAIN FILE SUMMARIES:
 1. run_exp.py -- This is the starting point for the code.
@@ -34,5 +34,6 @@ MAIN CONFIG OPTIONS:
 6. dataset.is_sample_subgraph: Always set to true.
 7. dataset.is_overwrite_precompute: Always set to true. (It's easier that way)
 8. dataset.is_noisy: Use it to add noise to node coordinates. This doesn't add noise to the labels, so your graph learns to denoise (hoepfully)
-9. model.max_num_nodes: (REMEMBER TO SET, ELSE IT GIVES INDEXING ERROR IN DATALOADER) set to max number of nodes in your data.
-10. test.better_vis: Set to False. It just deletes unconnected nodes, we don't want that.
+9. dataset.has_stop_node: Introduces a stop node.
+10. model.max_num_nodes: (REMEMBER TO SET, ELSE IT GIVES INDEXING ERROR IN DATALOADER) set to max number of nodes in your data.
+11. test.better_vis: Set to False. It just deletes unconnected nodes, we don't want that.

@@ -58,7 +58,8 @@ class GRANData(object):
       for index in tqdm(range(self.num_graphs)):
         G = self.graphs[index]
         if config.dataset.has_sub_nodes:
-          data, embeddings, subnodes = self._get_graph_data(G, has_node_embed = True, has_subnode=True)
+          data, embeddings, subnodes = self._get_graph_data(G, has_node_embed = True, has_subnode=True, 
+                                                            has_end_node=config.dataset.has_stop_node)
         elif config.dataset.has_node_feat:
           # adj_test = nx.to_numpy_array(G)
           data, embeddings = self._get_graph_data(G, has_node_embed = True)
@@ -102,7 +103,37 @@ class GRANData(object):
     
     return edge_subnode_out
 
-  def  _get_graph_data(self, G, has_node_embed=False, has_subnode=False):
+  def create_end_subnode(self, edge_subnote_out_1, max_node, node_embed):
+    t = torch.linspace(0, 1, self.config.dataset.num_sub_nodes).reshape(-1, 1)
+    for i in range(max_node+1):
+      start_node = node_embed[max_node,1]['features']
+      end_node = node_embed[i,1]['features']
+      subnode_tmp = start_node + t*(end_node - start_node)
+
+      edge_subnote_out_1[(max_node, i)] = subnode_tmp
+
+    return edge_subnote_out_1
+
+  def add_end_node(self, adj, node_embed = None, subnode= None):
+    ## Adding node to adjacency
+    max_node = adj.shape[0]
+    adj_new = np.pad(adj, ((0,1),(0,1)), mode='constant', constant_values=1)
+    if node_embed is None:
+      return adj_new
+    ## Adding to node embedding
+    end_node_dict = {}
+    end_node_dict['features'] = torch.tensor([-1.0,-1.0]) ## We say end node will have -1,-1 coordinate
+    end_node_arr = np.array([max_node, end_node_dict], dtype=node_embed.dtype).reshape(1,-1)
+    node_embed_new = np.concatenate((node_embed, end_node_arr), axis=0)
+
+    if subnode is None:
+      return adj_new, node_embed_new
+    ## Adding to subnode array
+    subnode_new = self.create_end_subnode(subnode, max_node, node_embed_new)
+
+    return adj_new, node_embed_new, subnode_new
+
+  def  _get_graph_data(self, G, has_node_embed=False, has_subnode=False, has_end_node=False):
     node_degree_list = [(n, d) for n, d in G.degree()]
 
     adj_0 = np.array(nx.to_numpy_array(G))
@@ -127,6 +158,14 @@ class GRANData(object):
     if has_subnode:
       edge_subnote_out_1 = self.get_new_edge_data(G, adj_1, nodelist_1)
   
+    if has_end_node:
+      if has_subnode:
+        adj_1, node_embed_1, edge_subnote_out_1 = self.add_end_node(adj_1, node_embed_1, edge_subnote_out_1)
+      elif has_node_embed:
+        adj_1, node_embed_1 = self.add_end_node(adj_1, node_embed_1)
+      else:
+        adj_1 = self.add_end_node(adj_1)
+
     ### Degree ascent ranking
     degree_sequence = sorted(node_degree_list, key=lambda tt: tt[1])
     nodelist_2 = [dd[0] for dd in degree_sequence]
@@ -137,7 +176,15 @@ class GRANData(object):
 
     if has_subnode:
       edge_subnote_out_2 = self.get_new_edge_data(G, adj_2, nodelist_2)
-
+    
+    if has_end_node:
+      if has_subnode:
+        adj_2, node_embed_2, edge_subnote_out_2 = self.add_end_node(adj_2, node_embed_2, edge_subnote_out_2)
+      elif has_node_embed:
+        adj_2, node_embed_2 = self.add_end_node(adj_2, node_embed_2)
+      else:
+        adj_2 = self.add_end_node(adj_2)
+  
     ### BFS & DFS from largest-degree node
     CGs = [G.subgraph(c) for c in nx.connected_components(G)]
 
@@ -163,12 +210,28 @@ class GRANData(object):
     if has_subnode:
       edge_subnote_out_3 = self.get_new_edge_data(G, adj_3, node_list_bfs)
 
+    if has_end_node:
+      if has_subnode:
+        adj_3, node_embed_3, edge_subnote_out_3 = self.add_end_node(adj_3, node_embed_3, edge_subnote_out_3)
+      elif has_node_embed:
+        adj_3, node_embed_3 = self.add_end_node(adj_3, node_embed_3)
+      else:
+        adj_3 = self.add_end_node(adj_3)
+
     adj_4 = np.array(nx.to_numpy_array(G, nodelist=node_list_dfs))
     if has_node_embed:
       node_embed_4 = np.array([node_embed_0[np.argmax(node_embed_0[:,0] == node)] for node in node_list_dfs])
     if has_subnode:
       edge_subnote_out_4 = self.get_new_edge_data(G, adj_4, node_list_dfs)
-
+    
+    if has_end_node:
+      if has_subnode:
+        adj_4, node_embed_4, edge_subnote_out_4 = self.add_end_node(adj_4, node_embed_4, edge_subnote_out_4)
+      elif has_node_embed:
+        adj_4, node_embed_4 = self.add_end_node(adj_4, node_embed_4)
+      else:
+        adj_4 = self.add_end_node(adj_4)
+  
     ### k-core
     num_core = nx.core_number(G)
     core_order_list = sorted(list(set(num_core.values())), reverse=True)
@@ -191,7 +254,15 @@ class GRANData(object):
 
     if has_subnode:
       edge_subnote_out_5 = self.get_new_edge_data(G, adj_5, node_list)
-    
+
+    if has_end_node:
+      if has_subnode:
+        adj_5, node_embed_5, edge_subnote_out_5 = self.add_end_node(adj_5, node_embed_5, edge_subnote_out_5)
+      elif has_node_embed:
+        adj_5, node_embed_5 = self.add_end_node(adj_5, node_embed_5)
+      else:
+        adj_5 = self.add_end_node(adj_5)
+
     if self.num_canonical_order == 5:
       adj_list = [adj_0, adj_1, adj_3, adj_4, adj_5]
       if has_node_embed:
@@ -511,6 +582,25 @@ class GRANData(object):
                       constant_values=0.0) for ii, bb in enumerate(batch_pass)
               ],
               axis=0)).float()  # B X C X N X N
+      
+      # if self.config.dataset.has_stop_node:
+      #   end_node_adj = torch.ones((self.max_num_nodes), dtype=torch.float32)
+      #   end_node_adj[-1:] = 0.0
+      #   adj_tmp = torch.from_numpy(
+      #     np.stack(
+      #         [
+      #             np.pad(
+      #                 bb['adj'], ((0, 0), (0, pad_size[ii]), (0, pad_size[ii])),
+      #                 'constant',
+      #                 constant_values=0.0) for ii, bb in enumerate(batch_pass)
+      #         ],
+      #         axis=0)).float()
+
+      #   for ii,bb in enumerate(batch_pass):
+      #     test = adj_tmp[ii, 0, bb['num_nodes'] -1, :]
+      #     adj_tmp[ii, 0, bb['num_nodes'] -1, :] = end_node_adj
+        
+      #   data['adj'] = adj_tmp
       
       if self.config.dataset.has_node_feat:
         data['node_embed'] = torch.from_numpy(

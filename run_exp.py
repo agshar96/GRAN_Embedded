@@ -28,12 +28,16 @@ def main():
     config.dataset.has_sub_nodes = False
   if not hasattr(config.dataset, "has_start_node"):
     config.dataset.has_start_node = False
+  if not hasattr(config.dataset, "has_stop_node"):
+    config.dataste.has_stop_node = False
     
   if config.dataset.has_sub_nodes:
     config.dataset.has_node_feat = True
     config.dataset.has_start_node = False ## Subnodes don't have start node logic implemented
 
   if config.dataset.has_start_node:
+    config.model.max_num_nodes += 1
+  if config.dataset.has_stop_node:
     config.model.max_num_nodes += 1
 
 

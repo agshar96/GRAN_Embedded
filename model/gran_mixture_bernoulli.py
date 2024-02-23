@@ -861,10 +861,32 @@ class GRANMixtureBernoulli(nn.Module):
       else:
         A = self._sampling(batch_size)
 
-      ### sample number of nodes
-      num_nodes_pmf = torch.from_numpy(num_nodes_pmf).to(self.device)
-      num_nodes = torch.multinomial(
-          num_nodes_pmf, batch_size, replacement=True) + 1  # shape B X 1
+      if not self.config.dataset.has_stop_node:
+        ### sample number of nodes
+        num_nodes_pmf = torch.from_numpy(num_nodes_pmf).to(self.device)
+        num_nodes = torch.multinomial(
+            num_nodes_pmf, batch_size, replacement=True) + 1  # shape B X 1
+      else:
+        ### We chose num_nodes on the basis of stop node
+        num_nodes = []
+        for cur_A in A:
+          cmp_arr = torch.zeros((1,cur_A.shape[0]), dtype=torch.float32).to(self.device)
+          # cmp_arr[0, -1:] = 0.0
+          has_end = False
+          for ii in range(len(cur_A)):
+            if ii <= 3:
+              continue # I assume graphs to have more than 3 nodes at least
+            cmp_arr[0, :ii] = 1.0
+            adj_lower_row = torch.zeros_like(cur_A[ii])
+            adj_lower_row[:ii] = cur_A[ii, :ii]
+            check_close =  torch.isclose(cmp_arr[0], adj_lower_row)
+            if check_close.all():
+              has_end = True
+              num_nodes += [ii]
+              break
+          if not has_end:
+            num_nodes += [len(cur_A)-1]
+            
 
       A_list = [
           A[ii, :num_nodes[ii], :num_nodes[ii]] for ii in range(batch_size)
@@ -872,7 +894,7 @@ class GRANMixtureBernoulli(nn.Module):
       if self.config.dataset.has_node_feat:
         node_embed_list = [
           node_embed_out[ii, :num_nodes[ii], :num_nodes[ii]] for ii in range(batch_size)
-         ]
+        ]
       if self.config.dataset.has_sub_nodes:
         subnode_coords_reshape = subnode_coords_out.reshape(batch_size, N_max,N_max, -1)
         subnode_coords_list = [
@@ -881,7 +903,8 @@ class GRANMixtureBernoulli(nn.Module):
       if self.config.test.animated_vis:
         theta_list = [
           theta_ret[ii, :num_nodes[ii], :num_nodes[ii]] for ii in range(batch_size)
-         ]
+        ]
+
       
       if self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
         return A_list, node_embed_list, subnode_coords_list, theta_list

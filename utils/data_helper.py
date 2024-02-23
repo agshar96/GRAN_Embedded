@@ -254,7 +254,8 @@ def create_grid_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, norma
           prev_node -= 1
     return G
 
-def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, subdivisions=10, noisy = False, noisy_std = 0.1):
+def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, subdivisions=10, noisy = False, noisy_std = 0.1,
+                              normalized = False):
   '''
     This function creates a grid with 'x_nodes' in x-direction and 'y_nodes'
     in y-direction. Each node has a 2D coordinate associated with it.
@@ -275,15 +276,32 @@ def create_subnode_with_embed(x_nodes, y_nodes, side_x = None, side_y = None, su
   elif side_x is None and side_y is None:
       side_x = side_y = 1
   
+  mean_tensor = torch.tensor([0,0])
+  std_tensor = torch.tensor([1,1])
+
+  if normalized:
+    coord_list = []
+    for i in range(x_nodes):
+      for j in range(y_nodes):
+          coords = torch.tensor([float(i*side_x), float(j*side_y)])
+          # if noisy:
+          #   coords += torch.randn(coords.size()) * noisy_std
+          coord_list.append(coords)
+    coord_list = torch.stack(coord_list)
+    mean_tensor = torch.mean(coord_list, dim=0)
+    std_tensor = torch.var(coord_list, dim = 0)
+  
   G = nx.Graph()
   num_node = 0
   node_dict = {} # Hold all node coodinates
   for i in range(x_nodes):
       for j in range(y_nodes):
-          coords = torch.tensor([float(i*side_x), float(j*side_y)])
+          coords = torch.tensor([float(i*side_x), float(j*side_y)]) - mean_tensor
           coords_noisy = coords.detach().clone()
           if noisy:
               coords_noisy += torch.randn(coords.size()) * noisy_std
+          coords_noisy = coords_noisy / std_tensor
+          coords = coords/ std_tensor
 
           G.add_node(num_node, features = coords_noisy)
           node_dict[num_node] = coords
@@ -415,7 +433,7 @@ def create_graphs(graph_type, data_dir='data',is_noisy = False ,noise_std=1.0,ha
     graphs = []
     for _ in range(35):
         graphs.append(create_subnode_with_embed(3,3, subdivisions=20))
-        graphs.append(create_subnode_with_embed(2,2, subdivisions=20))
+        graphs.append(create_subnode_with_embed(4,4, subdivisions=20))
   
   elif graph_type == 'nuplan':
     output = convert_nuplan_to_networkx()
