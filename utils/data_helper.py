@@ -335,14 +335,14 @@ def convert_nuplan_to_networkx(normalized = True):
   for map in maps:
     G = nx.Graph()
 
-    if normalized:
-      mean_node = np.mean(map.nodes, axis=0)
-      std_dev = np.std(map.nodes, axis=0)
+    # if normalized:
+    #   mean_node = np.mean(map.nodes, axis=0)
+    #   std_dev = np.std(map.nodes, axis=0)
 
     num_node = 0
     for node in map.nodes:
       if normalized:
-         node = (node - mean_node) / std_dev
+         node = node / 32 # We know that our data has nodes from -32 to 32
       G.add_node(num_node, features = torch.from_numpy(node).to(torch.float32))
       num_node += 1
     
@@ -350,7 +350,7 @@ def convert_nuplan_to_networkx(normalized = True):
        start_node, end_node = map.connections[edge_num]
        subnodes = torch.from_numpy(map.subnodes[edge_num])
        if normalized:
-          subnodes = (subnodes - torch.from_numpy(mean_node)) / torch.from_numpy(std_dev)
+          subnodes = subnodes / 32 # We know that our data has nodes from -32 to 32
 
        G.add_edge(start_node, end_node, subnodes = subnodes)
        G.add_edge(end_node, start_node)
@@ -439,11 +439,8 @@ def create_graphs(graph_type, data_dir='data',is_noisy = False ,noise_std=1.0,ha
     output = convert_nuplan_to_networkx()
     # graphs = output
     graphs = []
-    for i in range(35):
-       graphs.append(output[0])
-       graphs.append(output[1])
-
-
+    for i in range(len(output)):
+      graphs.append(output[i])
 
   num_nodes = [gg.number_of_nodes() for gg in graphs]
   num_edges = [gg.number_of_edges() for gg in graphs]

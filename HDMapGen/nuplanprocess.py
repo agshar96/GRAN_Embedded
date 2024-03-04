@@ -20,8 +20,11 @@ class HDMapGen:
 def load_gz_dirs(gz_dirs: List[Path]) -> List[HDMapGen]:
     features: List[HDMapGen] = []
     for gz_dir in gz_dirs:
-        with gzip.open(gz_dir, "rb") as f:
-            data = pickle.load(f)
+        if gz_dir.exists():
+            with gzip.open(gz_dir, "rb") as f:
+                data = pickle.load(f)
+        else:
+            continue
 
         features.append(
             HDMapGen(

@@ -842,13 +842,7 @@ class GRANMixtureBernoulli(nn.Module):
       return adj_loss
 
     else:
-      if graph_completion:
-        B, _, N, _ = A_pad.shape
-        starting_idx = 7 #torch.randint(low=1, high=N, size=(1,)).item()
-        A, node_embed_out = self._completion_sampling(batch_size, A_pad = A_pad
-                                                      , node_embed_pad=node_embed_pad,
-                                                      starting_idx=starting_idx)
-      elif self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
+      if self.config.dataset.has_sub_nodes and self.config.test.animated_vis:
         A, node_embed_out, subnode_coords_out, theta_ret = self._sampling(batch_size)
       elif self.config.dataset.has_sub_nodes:
         A, node_embed_out, subnode_coords_out = self._sampling(batch_size)

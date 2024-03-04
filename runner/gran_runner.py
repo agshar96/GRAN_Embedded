@@ -27,6 +27,7 @@ from utils.eval_helper import *
 from utils.dist_helper import compute_mmd, gaussian_emd, gaussian, emd, gaussian_tv
 from utils.vis_helper import draw_graph_list, draw_graph_list_separate, draw_graph_list_embed, draw_graph_nodes_list, draw_animated_plot, draw_graph_subnode_list, draw_animated_subnodes
 from utils.data_parallel import DataParallel
+from utils.lsg_helper import large_scale_vis
 
 
 try:
@@ -391,7 +392,6 @@ class GranRunner(object):
     return 1
 
   def test(self):
-    self.config.save_dir = self.test_conf.test_model_dir
 
     if not hasattr(self.config.test, "animated_vis"):
       self.config.test.animated_vis = False
@@ -408,7 +408,7 @@ class GranRunner(object):
     else:
       ### load model
       model = eval(self.model_conf.name)(self.config)
-      model_file = os.path.join(self.config.save_dir, self.test_conf.test_model_name)
+      model_file = os.path.join(self.test_conf.test_model_dir, self.test_conf.test_model_name)
       load_model(model, model_file, self.device)
 
       if self.use_gpu:
@@ -484,6 +484,9 @@ class GranRunner(object):
 
       else:
         graphs_gen = [get_graph(aa) for aa in A_pred]
+    
+    if self.config.test.large_scale_gen:
+      large_scale_vis(graphs_gen, self.config)
 
     ### Visualize Generated Graphs
     if self.is_vis:
@@ -560,168 +563,3 @@ class GranRunner(object):
               fname=save_name[:-4],
               is_single=True,
               layout='spring')
-
-    ### Evaluation
-    # if self.config.dataset.name in ['lobster']:
-    #   acc = eval_acc_lobster_graph(graphs_gen)
-    #   logger.info('Validity accuracy of generated graphs = {}'.format(acc))
-
-    # num_nodes_gen = [len(aa) for aa in graphs_gen]
-    
-    # # Compared with Validation Set    
-    # num_nodes_dev = [len(gg.nodes) for gg in self.graphs_dev]  # shape B X 1
-    # mmd_degree_dev, mmd_clustering_dev, mmd_4orbits_dev, mmd_spectral_dev = evaluate(self.graphs_dev, graphs_gen, degree_only=False)
-    # mmd_num_nodes_dev = compute_mmd([np.bincount(num_nodes_dev)], [np.bincount(num_nodes_gen)], kernel=gaussian_emd)
-
-    # # Compared with Test Set    
-    # num_nodes_test = [len(gg.nodes) for gg in self.graphs_test]  # shape B X 1
-    # mmd_degree_test, mmd_clustering_test, mmd_4orbits_test, mmd_spectral_test = evaluate(self.graphs_test, graphs_gen, degree_only=False)
-    # mmd_num_nodes_test = compute_mmd([np.bincount(num_nodes_test)], [np.bincount(num_nodes_gen)], kernel=gaussian_emd)
-
-    # logger.info("Validation MMD scores of #nodes/degree/clustering/4orbits/spectral are = {}/{}/{}/{}/{}".format(mmd_num_nodes_dev, mmd_degree_dev, mmd_clustering_dev, mmd_4orbits_dev, mmd_spectral_dev))
-    # logger.info("Test MMD scores of #nodes/degree/clustering/4orbits/spectral are = {}/{}/{}/{}/{}".format(mmd_num_nodes_test, mmd_degree_test, mmd_clustering_test, mmd_4orbits_test, mmd_spectral_test))
-
-    # if self.config.dataset.name in ['lobster']:
-    #   return mmd_degree_dev, mmd_clustering_dev, mmd_4orbits_dev, mmd_spectral_dev, mmd_degree_test, mmd_clustering_test, mmd_4orbits_test, mmd_spectral_test, acc
-    # else:
-    #   return mmd_degree_dev, mmd_clustering_dev, mmd_4orbits_dev, mmd_spectral_dev, mmd_degree_test, mmd_clustering_test, mmd_4orbits_test, mmd_spectral_test
-
-
-  def test_completion(self):
-    '''
-    The previous function generates the entire graph each time, this function implements case in which partial graphs can be completed.
-    As input we provide a semi-filled adjacency and nodes, and task will be the complete the graph
-
-    TO DO: Works only for embedding graphs
-    '''
-    if not self.config.dataset.has_node_feat:
-      print("Completion code only works for graphs with embedding for now")
-      exit(0)
-    self.config.save_dir = self.test_conf.test_model_dir
-    ### create data loader
-    test_dataset = eval(self.dataset_conf.loader_name)(self.config, self.graphs_test, tag='test')
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset,
-        batch_size=self.test_conf.batch_size,
-        shuffle=self.test_conf.shuffle,
-        num_workers=self.test_conf.num_workers,
-        collate_fn=test_dataset.collate_fn,
-        drop_last=False)
-    
-    ### load model
-    model = eval(self.model_conf.name)(self.config)
-    model_file = os.path.join(self.config.save_dir, self.test_conf.test_model_name)
-    load_model(model, model_file, self.device)
-
-    if self.use_gpu:
-      model = nn.DataParallel(model, device_ids=self.gpus).to(self.device)
-
-    model.eval()
-
-    ## Get the data from the test dataloader
-    test_iterator = test_loader.__iter__()
-    # iter_count = 0 
-    for inner_iter in range(len(test_loader) // self.num_gpus):
-
-      batch_data = []
-      if self.use_gpu:
-        for _ in self.gpus:
-          data = test_iterator.next()
-          batch_data.append(data)
-          # iter_count += 1
-
-      for ff in range(self.dataset_conf.num_fwd_pass):
-        batch_fwd = []
-        
-        if self.use_gpu:
-          for dd, gpu_id in enumerate(self.gpus):
-            data = {}
-            data['adj'] = batch_data[dd][ff]['adj'].pin_memory().to(gpu_id, non_blocking=True)
-            if self.config.dataset.has_node_feat:
-              data['node_embed'] = batch_data[dd][ff]['node_embed'].pin_memory().to(gpu_id, non_blocking=True)
-              data['node_embed_idx_gnn'] = batch_data[dd][ff]['node_embed_idx_gnn'].pin_memory().to(gpu_id, non_blocking=True)
-              data['label_embed'] = batch_data[dd][ff]['label_embed'].pin_memory().to(gpu_id, non_blocking=True)
-            data['edges'] = batch_data[dd][ff]['edges'].pin_memory().to(gpu_id, non_blocking=True)
-            data['node_idx_gnn'] = batch_data[dd][ff]['node_idx_gnn'].pin_memory().to(gpu_id, non_blocking=True)
-            data['node_idx_feat'] = batch_data[dd][ff]['node_idx_feat'].pin_memory().to(gpu_id, non_blocking=True)
-            data['label'] = batch_data[dd][ff]['label'].pin_memory().to(gpu_id, non_blocking=True)
-            data['att_idx'] = batch_data[dd][ff]['att_idx'].pin_memory().to(gpu_id, non_blocking=True)
-            data['subgraph_idx'] = batch_data[dd][ff]['subgraph_idx'].pin_memory().to(gpu_id, non_blocking=True)
-            data['subgraph_idx_base'] = batch_data[dd][ff]['subgraph_idx_base'].pin_memory().to(gpu_id, non_blocking=True)
-            data['is_sampling']=True
-            data['batch_size']=self.test_conf.batch_size
-            data['num_nodes_pmf']=self.num_nodes_pmf_train
-            batch_fwd.append((data,))
-          
-          if batch_fwd:
-            if self.config.dataset.has_node_feat:
-              ### Generate Graphs
-              '''
-              TO DO: A better way to do this will be to have A_pred and num_nodes outside and then generate all graphs and store them
-              Then visualize random sample of graphs from them. But currently, I am going with something that gets job done.
-              '''
-              A_pred = []
-              num_nodes_pred = []
-              if self.config.dataset.has_node_feat:
-                node_embed_pred = []
-              num_test_batch = 1
-
-              gen_run_time = []
-              for ii in tqdm(range(num_test_batch)):
-                with torch.no_grad():        
-                    start_time = time.time()
-                    if self.config.dataset.has_node_feat:
-                      A_tmp, node_embed_tmp = model(*batch_fwd, graph_completion = True)
-                    gen_run_time += [time.time() - start_time]
-                    A_pred += [aa.data.cpu().numpy() for aa in A_tmp]
-                    num_nodes_pred += [aa.shape[0] for aa in A_tmp]
-                    if self.config.dataset.has_node_feat:
-                      node_embed_pred += [aa.data.cpu().numpy() for aa in node_embed_tmp]
-
-              logger.info('Average test time per mini-batch = {}'.format(
-                  np.mean(gen_run_time)))
-      
-              if self.config.dataset.has_node_feat:
-                graphs_gen = [get_graph_embed(A_pred[ii], node_embed_pred[ii]) for ii in range(len(A_pred))]
-                graph_gen_no_embed = [get_graph(aa) for aa in A_pred]
-
-              else:
-                graphs_gen = [get_graph(aa) for aa in A_pred]
-              
-              ### Visualize Generated Graphs
-              if self.is_vis:
-                num_col = self.test_conf.batch_size
-                num_row = 1
-                test_epoch = self.test_conf.test_model_name
-                test_epoch = test_epoch[test_epoch.rfind('_') + 1:test_epoch.find('.pth')]
-                save_name = os.path.join(self.config.save_dir, '{}_gen_graphs_epoch_{}_block_{}_stride_{}.png'.format(self.config.test.test_model_name[:-4], test_epoch, self.block_size, self.stride))
-
-                # remove isolated nodes for better visulization
-                graphs_pred_vis = [copy.deepcopy(gg) for gg in graphs_gen[:self.num_vis]]
-
-                ## UNCOMMENT FOR BETTER VIS
-                # if self.better_vis:
-                #   for gg in graphs_pred_vis:
-                #     gg.remove_nodes_from(list(nx.isolates(gg)))
-
-                # display the largest connected component for better visualization
-                ## UNCOMMENT LATER
-                vis_graphs = []
-                for gg in graph_gen_no_embed: #graphs_pred_vis:        
-                  CGs = [gg.subgraph(c) for c in nx.connected_components(gg)]
-                  CGs = sorted(CGs, key=lambda x: x.number_of_nodes(), reverse=True)
-                  vis_graphs += [CGs[0]]
-
-                if self.is_single_plot:
-                  if self.config.dataset.has_node_feat:
-                    ## UNCOMMENT AND DELETE SECONF LINE IN MAIN CODE
-                    # draw_graph_list_embed(vis_graphs, num_row, num_col, fname="test_graphs")
-                    draw_graph_list_embed(graphs_pred_vis, num_row, num_col, fname="test_graphs_1")
-                    draw_graph_list(vis_graphs, num_row, num_col, fname="test_no_embed", layout='spring')
-                    # draw_graph_nodes_list(vis_graphs, num_row, num_col, fname="test_nodes")
-                    draw_graph_nodes_list(graphs_pred_vis, num_row, num_col, fname="test_nodes_1")
-                  else:
-                    draw_graph_list(vis_graphs, num_row, num_col, fname=save_name, layout='spring')
-                else:
-                  ## Currently, embedding graphs don't have this plot
-                  draw_graph_list_separate(vis_graphs, fname=save_name[:-4], is_single=True, layout='spring')

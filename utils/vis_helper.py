@@ -177,8 +177,6 @@ def draw_graph_subnode_list(G_list, row, col, fname= 'test_graph_subnode'):
         plt.scatter(x_sub, y_sub, s=5)
         plt.scatter(x,y, s=10, color='r')
         
-        
-    
     plt.savefig(fname+'.png', dpi=600)
     plt.close()
 
@@ -193,19 +191,6 @@ def draw_graph_nodes_list(G_list, row, col, fname= 'test_node_plots'):
         node_embed_output = list(G.nodes(data=True))
         node_embed_output = np.array([item[1]['features'] for item in node_embed_output])
         adj = np.asarray(nx.to_numpy_array(G))
-
-        # #Plot edges
-        # x =[]
-        # y =[]
-        # for i in range(node_embed_output.shape[0]):
-        #     coord1 = node_embed_output[i]
-        #     neighbors = np.where(np.isclose(adj[i], 1))[0]
-        #     for node in neighbors:
-        #         coord2 = node_embed_output[node]
-        #         x.extend([coord1[0], coord2[0], None])
-        #         y.extend([coord1[1], coord2[1], None])
-        # plt.scatter(x,y, s=3, color='r')
-        # plt.plot(x,y, '-k')
 
         x_coordinates = node_embed_output[:, 0]
         y_coordinates = node_embed_output[:, 1]
